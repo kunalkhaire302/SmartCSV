@@ -4,5 +4,5 @@ flask-cors==5.0.1
 pandas==2.2.3
 numpy==2.2.2
 chardet==5.2.0
-gunicorn==23.0.0
-# Removed heavy libs: scipy, scikit-learn to fit Vercel 250MB limit
+# Removed: scipy, scikit-learn (too large)
+# Removed: gunicorn (not needed for Vercel serverless, saves ~5MB)
