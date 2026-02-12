@@ -1,5 +1,7 @@
 # SmartCSV – Automated ETL & Insight Generation Platform
 
+🌐 **Live Demo:** [https://smartcsv.vercel.app/](https://smartcsv.vercel.app/)
+
 A production-ready, full-stack web application that lets users upload CSV files, automatically performs robust ETL processing, generates comprehensive statistical and visual insights, and delivers AI-powered natural language summaries.
 
 ## Architecture
