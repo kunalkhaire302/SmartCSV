@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SmartCSV – Automated ETL and Insight Generation Platform. Upload CSV files, clean data, and generate visual insights.">
+    <title>SmartCSV – Automated ETL & Insight Generation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ═══════════════ Navigation ═══════════════ -->
+<nav class="navbar" id="navbar">
+    <div class="nav-brand">
+        <svg class="nav-logo" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#g1)"/>
+            <path d="M8 22V10h4l4 6 4-6h4v12h-3.5v-7.5L17 18h-2l-3.5-3.5V22H8z" fill="#fff"/>
+            <defs><linearGradient id="g1" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs>
+        </svg>
+        <span class="nav-title">Smart<span class="accent">CSV</span></span>
+    </div>
+    <div class="nav-actions">
+        <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle dark/light mode">
+            <svg id="iconSun" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            <svg id="iconMoon" class="icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/></svg>
+        </button>
+    </div>
+</nav>
+
+<!-- ═══════════════ Hero / Upload Section ═══════════════ -->
+<main class="container">
+    <section class="hero" id="heroSection">
+        <h1 class="hero-title">Upload. <span class="accent">Transform.</span> Discover.</h1>
+        <p class="hero-subtitle">Drop your CSV and let SmartCSV clean, analyse, and visualise your data in seconds.</p>
+
+        <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Upload CSV file">
+            <div class="upload-zone-inner">
+                <svg class="upload-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M24 32V12M16 20l8-8 8 8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M40 32v6a2 2 0 01-2 2H10a2 2 0 01-2-2v-6" stroke-linecap="round"/>
+                </svg>
+                <p class="upload-text">Drag & drop your CSV here</p>
+                <p class="upload-hint">or <span class="link">browse files</span> · Max 10 MB</p>
+            </div>
+            <input type="file" id="fileInput" accept=".csv" hidden>
+        </div>
+
+        <!-- File preview row (hidden until upload) -->
+        <div class="file-preview hidden" id="filePreview">
+            <div class="file-info">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span class="file-name" id="fileName"></span>
+                <span class="file-size" id="fileSize"></span>
+            </div>
+            <button class="btn-icon" id="removeFile" title="Remove file" aria-label="Remove file">✕</button>
+        </div>
+    </section>
+
+    <!-- ═══════════════ Metadata Panel ═══════════════ -->
+    <section class="panel hidden" id="metadataPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">📋 File Metadata</h2>
+        </div>
+        <div class="meta-grid" id="metaGrid"></div>
+        <div class="panel-actions">
+            <button class="btn-primary" id="processBtn" disabled>
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Process &amp; Analyse
+            </button>
+        </div>
+    </section>
+
+    <!-- ═══════════════ Processing Loader ═══════════════ -->
+    <section class="panel hidden" id="processingPanel">
+        <div class="loader-container">
+            <div class="loader-spinner"></div>
+            <p class="loader-text" id="loaderText">Running ETL Pipeline…</p>
+            <div class="loader-steps" id="loaderSteps"></div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ ETL Summary ═══════════════ -->
+    <section class="panel hidden" id="etlPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">⚙️ ETL Summary</h2>
+        </div>
+        <div class="etl-content" id="etlContent"></div>
+    </section>
+
+    <!-- ═══════════════ Insight Cards ═══════════════ -->
+    <section class="panel hidden" id="insightsPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">🧠 AI Insights</h2>
+        </div>
+        <div class="insight-cards" id="insightCards"></div>
+    </section>
+
+    <!-- ═══════════════ Stats Summary ═══════════════ -->
+    <section class="panel hidden" id="statsPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">📊 Descriptive Statistics</h2>
+        </div>
+        <div class="stats-table-wrapper" id="statsTable"></div>
+    </section>
+
+    <!-- ═══════════════ Charts Grid ═══════════════ -->
+    <section class="panel hidden" id="chartsPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">📈 Visualisations</h2>
+        </div>
+        <div class="charts-grid" id="chartsGrid"></div>
+    </section>
+
+    <!-- ═══════════════ Download Bar ═══════════════ -->
+    <section class="download-bar hidden" id="downloadBar">
+        <div class="download-info">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span id="downloadName"></span>
+        </div>
+        <button class="btn-primary btn-sm" id="downloadBtn">Download Cleaned CSV</button>
+    </section>
+</main>
+
+<!-- ═══════════════ Footer ═══════════════ -->
+<footer class="footer">
+    <p>SmartCSV &copy; 2026 — Automated ETL &amp; Insight Generation Platform</p>
+</footer>
+
+<!-- ═══════════════ Scripts ═══════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/axios@1.7.9/dist/axios.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="/static/js/script.js"></script>
+</body>
+</html>
