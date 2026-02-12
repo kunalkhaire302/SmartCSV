@@ -11,31 +11,15 @@ Features
 
 Architecture
 
-Tech Stack
-
-Project Structure
-
-Getting Started
-
-Prerequisites
-
-Local Development
-
-Docker
-
-Production Deployment
-
-Usage
-
-API Documentation
-
-Environment Variables
-
-Contributing
-
-License
-
-Acknowledgments
+graph TD
+    A["Browser (Vanilla JS + Chart.js)"] -->|JSON / multipart| B["Flask REST API (app.py)"]
+    B --> C["ETL Engine (etl.py)"]
+    B --> D["Insight Engine (insights.py)"]
+    C --> E["Processed CSV (/processed)"]
+    D --> F["Stats + Charts + NLG JSON"]
+    F --> A
+    B --> G["Utils (file_handler, validators, logger)"]
+    G --> H["Config (config.py)"]
 
 ✨ Features
 Area	Capabilities
