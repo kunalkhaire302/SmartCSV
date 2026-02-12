@@ -86,6 +86,16 @@ docker build -t smartcsv .
 docker run -p 5000:5000 smartcsv
 ```
 
+### Production Deployment (Vercel)
+
+The included `vercel.json` makes deployment easy:
+
+1. Push this repository to GitHub/GitLab.
+2. Go to [Vercel](https://vercel.com) and add a new project.
+3. Import your repository.
+4. Vercel will automatically detect Python and deploy.
+5. **Important:** Add the environment variable `VERCEL=1` in the Vercel dashboard to ensure the app uses `/tmp` for storage (required for serverless).
+
 ### Production Deployment (Render)
 
 The Included `render.yaml` makes deployment easy:
@@ -96,7 +106,7 @@ The Included `render.yaml` makes deployment easy:
 4. Render will automatically detect the `render.yaml` and configure the service.
 5. Add a `SECRET_KEY` environment variable in the dashboard (or let Render generate one).
 
-**Note:** The filesystem on Render is ephemeral. Uploaded files will be deleted when the service restarts. For persistent storage, configure an AWS S3 bucket or similar service.
+**Note:** The filesystem on both Vercel and Render is ephemeral. Uploaded files will be deleted when the service restarts.
 
 ### Manual Production Run (Gunicorn)
 

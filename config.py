@@ -9,9 +9,14 @@ from pathlib import Path
 
 # ── Base Paths ──────────────────────────────────────────────────────────
 BASE_DIR: Path = Path(__file__).resolve().parent
-UPLOAD_FOLDER: Path = Path(os.getenv("UPLOAD_FOLDER", str(BASE_DIR / "uploads")))
-PROCESSED_FOLDER: Path = Path(os.getenv("PROCESSED_FOLDER", str(BASE_DIR / "processed")))
-LOG_FOLDER: Path = Path(os.getenv("LOG_FOLDER", str(BASE_DIR / "logs")))
+
+# Support Vercel (read-only filesystem) by using /tmp if running there
+IS_VERCEL = os.getenv("VERCEL") == "1"
+ROOT_STORAGE = Path("/tmp") if IS_VERCEL else BASE_DIR
+
+UPLOAD_FOLDER: Path = Path(os.getenv("UPLOAD_FOLDER", str(ROOT_STORAGE / "uploads")))
+PROCESSED_FOLDER: Path = Path(os.getenv("PROCESSED_FOLDER", str(ROOT_STORAGE / "processed")))
+LOG_FOLDER: Path = Path(os.getenv("LOG_FOLDER", str(ROOT_STORAGE / "logs")))
 
 # ── File Upload ─────────────────────────────────────────────────────────
 MAX_CONTENT_LENGTH: int = int(os.getenv("MAX_CONTENT_LENGTH", str(10 * 1024 * 1024)))  # 10 MB
