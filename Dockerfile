@@ -6,4 +6,4 @@ COPY . .
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "app:app"]
