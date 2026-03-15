@@ -478,9 +478,5 @@ def landing():  # noqa: ANN201
 # ═══════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    logger.info("Starting SmartCSV on %s:%s", config.FLASK_HOST, config.FLASK_PORT)
-    app.run(
-        host=config.FLASK_HOST,
-        port=config.FLASK_PORT,
-        debug=config.FLASK_DEBUG,
-    )
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
