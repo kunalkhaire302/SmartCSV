@@ -4,33 +4,12 @@ CSV and data quality validators.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 
 import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-
-def validate_file_size(file_path: Path) -> None:
-    """Raise ``ValueError`` if file exceeds the configured size limit.
-
-    Args:
-        file_path: Path to the file on disk.
-
-    Raises:
-        ValueError: If file exceeds ``MAX_CONTENT_LENGTH``.
-    """
-    size = file_path.stat().st_size
-    if size > config.MAX_CONTENT_LENGTH:
-        max_mb = config.MAX_CONTENT_LENGTH / (1024 * 1024)
-        actual_mb = size / (1024 * 1024)
-        raise ValueError(
-            f"File size ({actual_mb:.1f} MB) exceeds the maximum allowed "
-            f"({max_mb:.1f} MB)."
-        )
 
 
 def validate_csv(df: pd.DataFrame) -> list[str]:
@@ -77,23 +56,27 @@ def validate_csv(df: pd.DataFrame) -> list[str]:
     return warnings
 
 
-def get_upload_metadata(df: pd.DataFrame, file_path: Path) -> dict:
+def get_upload_metadata(
+    df: pd.DataFrame, storage_key: str, size_bytes: int,
+) -> dict:
     """Build metadata dict for an uploaded file.
 
     Args:
         df: Loaded DataFrame.
-        file_path: Path to the file on disk.
+        storage_key: Storage key (e.g. ``uploads/data.csv``).
+        size_bytes: Size of the raw file in bytes.
 
     Returns:
         Metadata dictionary.
     """
+    filename = storage_key.split("/")[-1]
     return {
-        "filename": file_path.name,
+        "filename": filename,
         "row_count": len(df),
         "column_count": len(df.columns),
         "columns": list(df.columns),
         "data_types": {col: str(dtype) for col, dtype in df.dtypes.items()},
         "missing_values": {col: int(df[col].isna().sum()) for col in df.columns},
         "duplicate_rows": int(df.duplicated().sum()),
-        "size_kb": round(file_path.stat().st_size / 1024, 1),
+        "size_kb": round(size_bytes / 1024, 1),
     }

@@ -18,6 +18,14 @@ UPLOAD_FOLDER: Path = Path(os.getenv("UPLOAD_FOLDER", str(ROOT_STORAGE / "upload
 PROCESSED_FOLDER: Path = Path(os.getenv("PROCESSED_FOLDER", str(ROOT_STORAGE / "processed")))
 LOG_FOLDER: Path = Path(os.getenv("LOG_FOLDER", str(ROOT_STORAGE / "logs")))
 
+# ── Storage Backend ────────────────────────────────────────────────────
+STORAGE_BACKEND: str = os.getenv("STORAGE_BACKEND", "local")  # "local" | "s3"
+AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+AWS_S3_BUCKET: str = os.getenv("AWS_S3_BUCKET", "")
+AWS_S3_REGION: str = os.getenv("AWS_S3_REGION", "auto")
+AWS_S3_ENDPOINT_URL: str = os.getenv("AWS_S3_ENDPOINT_URL", "")  # For R2/MinIO
+
 # ── File Upload ─────────────────────────────────────────────────────────
 MAX_CONTENT_LENGTH: int = int(os.getenv("MAX_CONTENT_LENGTH", str(10 * 1024 * 1024)))  # 10 MB
 ALLOWED_EXTENSIONS: set[str] = {"csv"}
@@ -34,7 +42,23 @@ FLASK_PORT: int = int(os.getenv("PORT", "5000"))
 FLASK_DEBUG: bool = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 SECRET_KEY: str = os.getenv("SECRET_KEY", "smartcsv-secret-key-change-in-prod")
 
+# ── Supabase Auth ──────────────────────────────────────────────────────
+SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
+SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+
+# ── AI / LLM ───────────────────────────────────────────────────────────
+ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+
+# ── Stripe Billing ─────────────────────────────────────────────────────
+STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_PRO: str = os.getenv("STRIPE_PRICE_PRO", "")      # Stripe Price ID for Pro plan
+STRIPE_PRICE_TEAM: str = os.getenv("STRIPE_PRICE_TEAM", "")    # Stripe Price ID for Team plan
+
 # ── Logging ─────────────────────────────────────────────────────────────
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 LOG_MAX_BYTES: int = 5 * 1024 * 1024  # 5 MB per log file
 LOG_BACKUP_COUNT: int = 3

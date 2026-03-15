@@ -1,10 +1,14 @@
 """
 File I/O utilities – save uploads, load CSVs with encoding detection.
+
+All persistence goes through the pluggable storage backend
+(:pymod:`utils.storage`) so the rest of the app is storage-agnostic.
 """
 
 from __future__ import annotations
 
 import datetime
+import io
 import uuid
 from pathlib import Path
 from typing import BinaryIO
@@ -14,6 +18,7 @@ import pandas as pd
 
 import config
 from utils.logger import get_logger
+from utils.storage import get_storage
 
 logger = get_logger(__name__)
 
@@ -48,66 +53,87 @@ def generate_unique_filename(original: str) -> str:
     return f"{ts}_{uid}_{safe}"
 
 
-def save_upload(file_storage: BinaryIO, original_filename: str) -> Path:
-    """Validate and save an uploaded file to the uploads directory.
+def save_upload(file_storage: BinaryIO, original_filename: str) -> str:
+    """Validate and save an uploaded file via the storage backend.
 
     Args:
         file_storage: File-like object from the request.
         original_filename: Original filename.
 
     Returns:
-        Path to the saved file.
+        Storage key for the saved file (e.g. ``uploads/20260212_..._data.csv``).
 
     Raises:
-        ValueError: If extension or MIME type is not allowed.
+        ValueError: If extension is not allowed.
     """
     ext = Path(original_filename).suffix.lower().lstrip(".")
     if ext not in config.ALLOWED_EXTENSIONS:
         raise ValueError(f"Extension '.{ext}' is not allowed. Accepted: {config.ALLOWED_EXTENSIONS}")
 
     unique_name = generate_unique_filename(original_filename)
-    dest = config.UPLOAD_FOLDER / unique_name
-    file_storage.save(str(dest))
-    logger.info("Saved upload to %s", dest)
-    return dest
+    key = f"uploads/{unique_name}"
+
+    raw_bytes = file_storage.read()
+    if len(raw_bytes) > config.MAX_CONTENT_LENGTH:
+        raise ValueError(
+            f"File exceeds maximum size "
+            f"({config.MAX_CONTENT_LENGTH / (1024 * 1024):.0f} MB)."
+        )
+
+    storage = get_storage()
+    storage.save(key, raw_bytes)
+    logger.info("Saved upload: %s (%d bytes)", key, len(raw_bytes))
+    return key
 
 
-def detect_encoding(file_path: Path, sample_size: int = 65536) -> str:
-    """Detect file encoding using chardet.
+def detect_encoding(data: bytes, sample_size: int = 65536) -> str:
+    """Detect encoding of raw bytes using chardet.
 
     Args:
-        file_path: Path to the file.
+        data: Raw file bytes.
         sample_size: Bytes to sample for detection.
 
     Returns:
         Detected encoding string, defaults to ``utf-8``.
     """
-    with open(file_path, "rb") as fh:
-        raw = fh.read(sample_size)
-    result = chardet.detect(raw)
+    sample = data[:sample_size]
+    result = chardet.detect(sample)
     encoding = result.get("encoding") or "utf-8"
-    logger.info("Detected encoding: %s (confidence: %.0f%%)", encoding, (result.get("confidence", 0) * 100))
+    logger.info(
+        "Detected encoding: %s (confidence: %.0f%%)",
+        encoding,
+        (result.get("confidence", 0) * 100),
+    )
     return encoding
 
 
-def load_csv(file_path: Path) -> pd.DataFrame:
-    """Load a CSV file into a DataFrame with encoding detection.
+def load_csv(key: str) -> pd.DataFrame:
+    """Load a CSV from storage into a DataFrame with encoding detection.
 
     Args:
-        file_path: Path to the CSV file.
+        key: Storage key (e.g. ``uploads/myfile.csv`` or ``processed/cleaned_myfile.csv``).
 
     Returns:
         Pandas DataFrame.
 
     Raises:
         ValueError: If the file cannot be parsed.
+        FileNotFoundError: If the key does not exist.
     """
-    encoding = detect_encoding(file_path)
+    storage = get_storage()
+    raw = storage.load(key)
+    encoding = detect_encoding(raw)
+
     try:
-        df = pd.read_csv(str(file_path), encoding=encoding, low_memory=False)
+        df = pd.read_csv(io.BytesIO(raw), encoding=encoding, low_memory=False)
     except UnicodeDecodeError:
-        logger.warning("Encoding %s failed, falling back to utf-8 with errors='replace'", encoding)
-        df = pd.read_csv(str(file_path), encoding="utf-8", errors="replace", low_memory=False)
+        logger.warning(
+            "Encoding %s failed, falling back to utf-8 with errors='replace'",
+            encoding,
+        )
+        df = pd.read_csv(
+            io.BytesIO(raw), encoding="utf-8", errors="replace", low_memory=False
+        )
     except Exception as exc:
         logger.error("Failed to parse CSV: %s", exc)
         raise ValueError(f"Unable to read CSV file: {exc}") from exc

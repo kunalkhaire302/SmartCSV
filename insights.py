@@ -475,6 +475,9 @@ def generate_nlg_insights(
 def generate_full_insights(df: pd.DataFrame) -> dict[str, Any]:
     """Run all insight analyses on a cleaned DataFrame.
 
+    Tries AI-powered summaries via Claude first. Falls back to
+    template-based NLG if the API key is missing or the call fails.
+
     Args:
         df: Cleaned DataFrame (output of ETL pipeline).
 
@@ -489,7 +492,31 @@ def generate_full_insights(df: pd.DataFrame) -> dict[str, Any]:
     dist = distribution_analysis(df, col_types["numeric"])
     freq = frequency_tables(df, col_types["categorical"])
     charts = auto_select_charts(df, col_types, corr)
-    nlg = generate_nlg_insights(df, col_types, stats, corr, freq)
+
+    summary_info = {
+        "total_rows": len(df),
+        "total_columns": len(df.columns),
+        "numeric_columns": len(col_types["numeric"]),
+        "categorical_columns": len(col_types["categorical"]),
+        "datetime_columns": len(col_types["datetime"]),
+    }
+
+    # Try AI-powered insights first
+    ai_generated = False
+    tokens_used = 0
+    try:
+        from ai.llm_client import generate_ai_summary, is_available
+        if is_available():
+            result = generate_ai_summary(stats, corr, freq, summary_info)
+            nlg = result["insights"]
+            ai_generated = True
+            tokens_used = result.get("tokens_used", 0)
+            logger.info("AI summary used (%d tokens)", tokens_used)
+        else:
+            nlg = generate_nlg_insights(df, col_types, stats, corr, freq)
+    except Exception as exc:
+        logger.warning("AI summary failed, falling back to template: %s", exc)
+        nlg = generate_nlg_insights(df, col_types, stats, corr, freq)
 
     return {
         "column_types": col_types,
@@ -499,11 +526,7 @@ def generate_full_insights(df: pd.DataFrame) -> dict[str, Any]:
         "frequency_tables": freq,
         "charts": charts,
         "insights": nlg,
-        "summary": {
-            "total_rows": len(df),
-            "total_columns": len(df.columns),
-            "numeric_columns": len(col_types["numeric"]),
-            "categorical_columns": len(col_types["categorical"]),
-            "datetime_columns": len(col_types["datetime"]),
-        },
+        "ai_generated": ai_generated,
+        "tokens_used": tokens_used,
+        "summary": summary_info,
     }

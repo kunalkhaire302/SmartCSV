@@ -1,8 +1,14 @@
-# SmartCSV – Dependencies (Optimized for Vercel <250MB limit)
+# SmartCSV – Dependencies
 flask==3.1.0
 flask-cors==5.0.1
+flask-limiter>=3.5.0  # Rate limiting (60 req/min per IP)
 pandas==2.2.3
 numpy==2.2.2
 chardet==5.2.0
-# Removed: scipy, scikit-learn (too large)
-# Removed: gunicorn (not needed for Vercel serverless, saves ~5MB)
+gunicorn==23.0.0
+boto3>=1.35.0         # S3 storage (only when STORAGE_BACKEND=s3)
+PyJWT>=2.8.0          # JWT verification for Supabase Auth
+httpx>=0.27.0         # HTTP client for Supabase REST API
+anthropic>=0.40.0     # Claude API for AI summaries
+stripe>=7.0.0         # Stripe billing (only when STRIPE_SECRET_KEY set)
+sentry-sdk[flask]

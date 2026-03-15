@@ -172,6 +172,8 @@ Download the processed CSV file.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| SENTRY_DSN     | (not set) | Sentry DSN from Project Settings → Client Keys. Leave empty to disable. |
+| FLASK_ENV      | production | Set to "development" locally to suppress Sentry in dev. |
 | `PORT` | `5000` | Server port |
 | `FLASK_DEBUG` | `false` | Enable debug mode |
 | `UPLOAD_FOLDER` | `./uploads` | Upload directory |
