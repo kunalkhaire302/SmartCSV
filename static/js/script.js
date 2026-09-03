@@ -8,33 +8,93 @@
 // ═══════════════════════════════════════════════════════════════════
 //  DOM References
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  Axios Interceptor for Auth
+// ═══════════════════════════════════════════════════════════════════
+axios.interceptors.request.use(config => {
+    const token = localStorage.getItem('smartcsv_token');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+});
+
+axios.interceptors.response.use(response => response, error => {
+    if (error.response && error.response.status === 401) {
+        if (error.config && !error.config.url.includes('/auth/me') && !error.config.url.includes('/auth/login')) {
+            localStorage.removeItem('smartcsv_token');
+            state.user = null;
+            updateNavAuth();
+            showToast('Session expired. Please log in again.', 'error');
+        }
+    }
+    return Promise.reject(error);
+});
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
 const dom = {
+    navLinks: $('#navLinks'),
+    dashboardView: $('#dashboardView'),
+    quotaInfo: $('#quotaInfo'),
+    heroSection: $('#heroSection'),
+    
     uploadZone: $('#uploadZone'),
     fileInput: $('#fileInput'),
     filePreview: $('#filePreview'),
     fileName: $('#fileName'),
     fileSize: $('#fileSize'),
     removeFile: $('#removeFile'),
+    
+    maxFileSizeDisplay: $('#maxFileSizeDisplay'),
+    
     metadataPanel: $('#metadataPanel'),
     metaGrid: $('#metaGrid'),
+    qualityAlert: $('#qualityAlert'),
+    outlierHandling: $('#outlierHandling'),
     processBtn: $('#processBtn'),
+    
     processingPanel: $('#processingPanel'),
     loaderText: $('#loaderText'),
     loaderSteps: $('#loaderSteps'),
+    
+    resultsNav: $('#resultsNav'),
+    resultsContainer: $('#resultsContainer'),
+    
     etlPanel: $('#etlPanel'),
     etlContent: $('#etlContent'),
     insightsPanel: $('#insightsPanel'),
     insightCards: $('#insightCards'),
+    
     statsPanel: $('#statsPanel'),
     statsTable: $('#statsTable'),
+    
     chartsPanel: $('#chartsPanel'),
     chartsGrid: $('#chartsGrid'),
+    
+    chatTabBtn: $('#chatTabBtn'),
+    chatPanel: $('#chatPanel'),
+    chatHistory: $('#chatHistory'),
+    chatInput: $('#chatInput'),
+    chatSendBtn: $('#chatSendBtn'),
+    chatQuota: $('#chatQuota'),
+    
     downloadBar: $('#downloadBar'),
     downloadName: $('#downloadName'),
     downloadBtn: $('#downloadBtn'),
+    shareBtn: $('#shareBtn'),
+    
+    shareModal: $('#shareModal'),
+    closeShareModal: $('#closeShareModal'),
+    cancelShareBtn: $('#cancelShareBtn'),
+    createShareBtn: $('#createShareBtn'),
+    shareTitle: $('#shareTitle'),
+    shareExpiry: $('#shareExpiry'),
+    shareLinkBox: $('#shareLinkBox'),
+    shareLinkInput: $('#shareLinkInput'),
+    copyShareLinkBtn: $('#copyShareLinkBtn'),
+    
     themeToggle: $('#themeToggle'),
     iconSun: $('#iconSun'),
     iconMoon: $('#iconMoon'),
@@ -48,7 +108,97 @@ let state = {
     uploadedFilename: null,
     processedFilename: null,
     chartInstances: [],
+    chatHistory: [],
+    user: null, // Will hold { id, email, plan } if logged in
+    limits: null,
 };
+
+// ═══════════════════════════════════════════════════════════════════
+//  Init & Auth
+// ═══════════════════════════════════════════════════════════════════
+async function initApp() {
+    initTheme();
+    await fetchConfig();
+    await checkAuth();
+    setupTabs();
+}
+
+async function fetchConfig() {
+    try {
+        const res = await axios.get('/config/limits');
+        state.limits = res.data;
+    } catch (err) {
+        console.warn("Failed to fetch limits", err);
+    }
+}
+
+async function checkAuth() {
+    try {
+        const res = await axios.get('/auth/me');
+        state.user = res.data.user;
+        updateNavAuth();
+        updateLimitsDisplay();
+        dom.dashboardView.classList.remove('hidden');
+    } catch (err) {
+        state.user = null;
+        updateNavAuth();
+        // Just show the hero upload section if not authenticated
+        // The backend handles upload limits if they try to upload
+    }
+}
+
+function updateNavAuth() {
+    if (state.user) {
+        dom.navLinks.innerHTML = `
+            <span class="nav-user">${escapeHtml(state.user.email)} <span class="badge">${state.user.plan.toUpperCase()}</span></span>
+            <a href="#" id="logoutBtn" class="nav-link">Logout</a>
+        `;
+        document.getElementById('logoutBtn').addEventListener('click', async (e) => {
+            e.preventDefault();
+            try { await axios.post('/auth/logout'); } catch(err) {}
+            localStorage.removeItem('smartcsv_token');
+            window.location.reload();
+        });
+        
+        // Disable chat tab if not pro/team
+        if (state.limits && state.user.plan === 'free') {
+            dom.chatTabBtn.classList.add('disabled-feature');
+            dom.chatTabBtn.title = 'Requires Pro plan';
+        }
+    } else {
+        dom.navLinks.innerHTML = `
+            <a href="/login" class="nav-link">Log In</a>
+            <a href="/register" class="btn-primary btn-sm">Sign Up</a>
+        `;
+    }
+}
+
+function updateLimitsDisplay() {
+    if (state.limits && state.user) {
+        const planLimits = state.limits[state.user.plan] || state.limits.free;
+        dom.maxFileSizeDisplay.textContent = planLimits.max_file_size_mb;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Tabs
+// ═══════════════════════════════════════════════════════════════════
+function setupTabs() {
+    $$('.results-nav .tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            if (btn.classList.contains('disabled-feature')) {
+                showToast("This feature requires an upgrade.", "info");
+                return;
+            }
+            
+            $$('.results-nav .tab-btn').forEach(b => b.classList.remove('active'));
+            $$('.results-container .tab-pane').forEach(p => p.classList.remove('active'));
+            
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.target).classList.add('active');
+        });
+    });
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  Theme Toggle
@@ -80,7 +230,6 @@ function updateThemeIcons(theme) {
 }
 
 dom.themeToggle.addEventListener('click', toggleTheme);
-initTheme();
 
 // ═══════════════════════════════════════════════════════════════════
 //  File Upload – Drag & Drop + Click
@@ -112,14 +261,26 @@ dom.removeFile.addEventListener('click', (e) => {
 });
 
 function handleFileSelect(file) {
+    if (!state.user) {
+        showToast('Please log in to upload files.', 'info');
+        setTimeout(() => window.location.href = '/login', 1500);
+        return;
+    }
+
     if (!file.name.toLowerCase().endsWith('.csv')) {
         showToast('Only CSV files are accepted.', 'error');
         return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-        showToast('File exceeds 10 MB limit.', 'error');
+    
+    const limitMb = (state.limits && state.user) 
+        ? state.limits[state.user.plan].max_file_size_mb 
+        : (state.limits ? state.limits.free.max_file_size_mb : 5);
+        
+    if (file.size > limitMb * 1024 * 1024) {
+        showToast(`File exceeds ${limitMb} MB limit.`, 'error');
         return;
     }
+    
     state.file = file;
     dom.fileName.textContent = file.name;
     dom.fileSize.textContent = formatBytes(file.size);
@@ -147,6 +308,8 @@ async function uploadFile(file) {
     } catch (err) {
         const msg = err.response?.data?.error || 'Upload failed.';
         showToast(msg, 'error');
+        dom.filePreview.classList.add('hidden');
+        state.file = null;
     }
 }
 
@@ -161,10 +324,19 @@ async function processAndAnalyse() {
     dom.processBtn.disabled = true;
     showProcessing();
 
+
     try {
+        // Prepare cleaning config
+        const cleaningConfig = {
+            outlier_handling: dom.outlierHandling.value
+        };
+
         // Step 1: ETL
         updateLoaderStep('Running ETL pipeline…', 'active');
-        const etlRes = await axios.post('/process', { filename: state.uploadedFilename });
+        const etlRes = await axios.post('/process', { 
+            filename: state.uploadedFilename,
+            cleaning_config: cleaningConfig
+        });
         const etlSummary = etlRes.data;
         state.processedFilename = etlSummary.processed_file;
         updateLoaderStep('ETL complete ✓', 'done');
@@ -177,6 +349,9 @@ async function processAndAnalyse() {
 
         // Hide loader, show results
         dom.processingPanel.classList.add('hidden');
+        dom.resultsNav.classList.remove('hidden');
+        dom.resultsContainer.classList.remove('hidden');
+        
         renderETLSummary(etlSummary);
         renderInsights(insights);
         renderStats(insights.descriptive_stats);
@@ -192,17 +367,134 @@ async function processAndAnalyse() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  API – Download
+//  API – Download & Share
 // ═══════════════════════════════════════════════════════════════════
 dom.downloadBtn.addEventListener('click', () => {
     if (!state.processedFilename) return;
     window.location.href = `/download?file=${encodeURIComponent(state.processedFilename)}`;
 });
 
+dom.shareBtn.addEventListener('click', () => {
+    if (!state.user || state.user.plan === 'free') {
+        showToast('Sharing requires a Pro or Team plan.', 'info');
+        return;
+    }
+    
+    dom.shareTitle.value = '';
+    dom.shareLinkBox.classList.add('hidden');
+    dom.shareModal.classList.remove('hidden');
+});
+
+dom.closeShareModal.addEventListener('click', () => dom.shareModal.classList.add('hidden'));
+dom.cancelShareBtn.addEventListener('click', () => dom.shareModal.classList.add('hidden'));
+
+dom.createShareBtn.addEventListener('click', async () => {
+    try {
+        const title = dom.shareTitle.value.trim();
+        const expires_hours = parseInt(dom.shareExpiry.value);
+        
+        dom.createShareBtn.disabled = true;
+        dom.createShareBtn.textContent = 'Creating...';
+        
+        const res = await axios.post('/share', {
+            file: state.processedFilename,
+            title: title || undefined,
+            expires_hours: expires_hours
+        });
+        
+        dom.shareLinkInput.value = window.location.origin + res.data.share_url;
+        dom.shareLinkBox.classList.remove('hidden');
+        dom.createShareBtn.classList.add('hidden');
+        dom.cancelShareBtn.textContent = 'Close';
+        
+    } catch (err) {
+        showToast(err.response?.data?.error || 'Failed to create share link', 'error');
+    } finally {
+        dom.createShareBtn.disabled = false;
+        dom.createShareBtn.textContent = 'Create Link';
+    }
+});
+
+dom.copyShareLinkBtn.addEventListener('click', () => {
+    dom.shareLinkInput.select();
+    document.execCommand('copy');
+    dom.copyShareLinkBtn.textContent = 'Copied!';
+    setTimeout(() => { dom.copyShareLinkBtn.textContent = 'Copy'; }, 2000);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+//  Chat functionality
+// ═══════════════════════════════════════════════════════════════════
+dom.chatSendBtn.addEventListener('click', sendChatMessage);
+dom.chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+});
+
+async function sendChatMessage() {
+    const question = dom.chatInput.value.trim();
+    if (!question || !state.processedFilename) return;
+    
+    // Add user message to UI
+    appendChatMessage('user', question);
+    dom.chatInput.value = '';
+    
+    // Add loading indicator
+    const loadingId = 'loading-' + Date.now();
+    appendChatMessage('assistant', '<div class="typing-indicator"><span></span><span></span><span></span></div>', loadingId);
+    
+    try {
+        const res = await axios.post('/chat', {
+            file: state.processedFilename,
+            question: question,
+            history: state.chatHistory
+        });
+        
+        // Remove loading
+        document.getElementById(loadingId)?.remove();
+        
+        // Append response
+        appendChatMessage('assistant', res.data.answer);
+        
+        // Update history
+        state.chatHistory.push({ role: 'user', content: question });
+        state.chatHistory.push({ role: 'assistant', content: res.data.answer });
+        
+    } catch (err) {
+        document.getElementById(loadingId)?.remove();
+        const msg = err.response?.data?.error || 'Failed to get answer.';
+        appendChatMessage('assistant', `<span style="color:var(--error)">Error: ${msg}</span>`);
+    }
+}
+
+function appendChatMessage(role, content, id = null) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `chat-message ${role}`;
+    if (id) msgDiv.id = id;
+    
+    // Simple markdown formatting for bold and lists
+    let formattedContent = content
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n- /g, '<br>• ')
+        .replace(/\n/g, '<br>');
+        
+    msgDiv.innerHTML = `<div class="message-content">${formattedContent}</div>`;
+    dom.chatHistory.appendChild(msgDiv);
+    dom.chatHistory.scrollTop = dom.chatHistory.scrollHeight;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  Rendering – Metadata
 // ═══════════════════════════════════════════════════════════════════
 function renderMetadata(meta) {
+    // Quality warning
+    if (meta.quality && meta.quality.score < 70) {
+        dom.qualityAlert.innerHTML = `<strong>Data Quality Warning (${meta.quality.score}/100)</strong><br>
+        This dataset has issues: ${meta.quality.missing_cells} missing cells, ${meta.quality.duplicate_rows} duplicate rows. ETL will attempt to clean it.`;
+        dom.qualityAlert.classList.remove('hidden');
+    } else {
+        dom.qualityAlert.classList.add('hidden');
+    }
+
     const items = [
         { label: 'Rows', value: meta.row_count.toLocaleString(), accent: true },
         { label: 'Columns', value: meta.column_count, accent: true },
@@ -210,7 +502,6 @@ function renderMetadata(meta) {
         { label: 'Duplicates', value: meta.duplicate_rows, accent: true },
     ];
 
-    // Add column types
     if (meta.data_types) {
         const types = Object.values(meta.data_types);
         const summary = {};
@@ -219,7 +510,6 @@ function renderMetadata(meta) {
         items.push({ label: 'Data Types', value: typeStr, small: true });
     }
 
-    // Missing values summary
     if (meta.missing_values) {
         const totalMissing = Object.values(meta.missing_values).reduce((a, b) => a + b, 0);
         items.push({ label: 'Total Missing', value: totalMissing.toLocaleString(), accent: true });
@@ -248,7 +538,6 @@ function updateLoaderStep(text, status) {
     step.innerHTML = `${status === 'done' ? '✓' : '⟳'} ${text}`;
     dom.loaderSteps.appendChild(step);
 
-    // Update previous active to done
     if (status === 'active') {
         dom.loaderSteps.querySelectorAll('.active').forEach(el => {
             if (el !== step) { el.classList.remove('active'); el.classList.add('done'); }
@@ -260,12 +549,18 @@ function updateLoaderStep(text, status) {
 //  Rendering – ETL Summary
 // ═══════════════════════════════════════════════════════════════════
 function renderETLSummary(summary) {
-    let html = '<div class="etl-stat"><span class="etl-stat-label">Rows after cleaning</span><span class="etl-stat-value">' + (summary.rows_after || 0).toLocaleString() + '</span></div>';
-    html += '<div class="etl-stat"><span class="etl-stat-label">Columns after</span><span class="etl-stat-value">' + (summary.columns_after || 0) + '</span></div>';
+    let html = '<div class="etl-stats-grid">';
+    html += '<div class="etl-stat"><span class="etl-stat-label">Rows</span><span class="etl-stat-value">' + (summary.rows_after || 0).toLocaleString() + '</span></div>';
+    html += '<div class="etl-stat"><span class="etl-stat-label">Columns</span><span class="etl-stat-value">' + (summary.columns_after || 0) + '</span></div>';
     html += '<div class="etl-stat"><span class="etl-stat-label">Memory saved</span><span class="etl-stat-value">' + (summary.memory_reduction_mb || 0) + ' MB</span></div>';
+    
+    if (summary.quality_after) {
+        html += '<div class="etl-stat"><span class="etl-stat-label">Completeness</span><span class="etl-stat-value">' + summary.quality_after.completeness + '%</span></div>';
+    }
+    html += '</div>';
 
     if (summary.transformations_applied && summary.transformations_applied.length) {
-        html += '<h3 style="margin-top:16px;font-size:0.9rem;color:var(--text-muted)">Transformations Applied</h3>';
+        html += '<h3 style="margin-top:24px;font-size:0.9rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Transformations Applied</h3>';
         html += '<div class="etl-tags">';
         summary.transformations_applied.forEach(t => {
             html += `<span class="etl-tag">✓ ${escapeHtml(t)}</span>`;
@@ -274,7 +569,7 @@ function renderETLSummary(summary) {
     }
 
     if (summary.outliers_detected && Object.keys(summary.outliers_detected).length) {
-        html += '<h3 style="margin-top:16px;font-size:0.9rem;color:var(--text-muted)">Outliers Detected</h3>';
+        html += '<h3 style="margin-top:24px;font-size:0.9rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Outliers Handled</h3>';
         html += '<div class="etl-tags">';
         Object.entries(summary.outliers_detected).forEach(([col, cnt]) => {
             html += `<span class="etl-tag">⚠ ${escapeHtml(col)}: ${cnt}</span>`;
@@ -283,7 +578,6 @@ function renderETLSummary(summary) {
     }
 
     dom.etlContent.innerHTML = html;
-    dom.etlPanel.classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -298,7 +592,6 @@ function renderInsights(data) {
             ${escapeHtml(text)}
         </div>
     `).join('');
-    dom.insightsPanel.classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -329,7 +622,6 @@ function renderStats(statsArr) {
 
     html += '</tbody></table>';
     dom.statsTable.innerHTML = html;
-    dom.statsPanel.classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -393,7 +685,6 @@ function renderCharts(charts) {
             },
         };
 
-        // Scatter plots need different scale config
         if (cfg.chart_type === 'scatter') {
             chartConfig.options.scales = {
                 x: { grid: { color: gridColor }, type: 'linear', position: 'bottom' },
@@ -404,12 +695,10 @@ function renderCharts(charts) {
         const instance = new Chart(ctx, chartConfig);
         state.chartInstances.push(instance);
     });
-
-    dom.chartsPanel.classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  Rendering – Heatmap (as colored table)
+//  Rendering – Heatmap
 // ═══════════════════════════════════════════════════════════════════
 function renderHeatmap(cfg) {
     const card = document.createElement('div');
@@ -484,19 +773,32 @@ function escapeHtml(str) {
 }
 
 function hideAllPanels() {
-    ['metadataPanel', 'processingPanel', 'etlPanel', 'insightsPanel', 'statsPanel', 'chartsPanel', 'downloadBar'].forEach(id => {
+    ['metadataPanel', 'processingPanel', 'resultsNav', 'resultsContainer', 'downloadBar'].forEach(id => {
         document.getElementById(id)?.classList.add('hidden');
     });
 }
 
 function resetAll() {
-    state = { file: null, uploadedFilename: null, processedFilename: null, chartInstances: [] };
+    state.file = null;
+    state.uploadedFilename = null;
+    state.processedFilename = null;
+    state.chatHistory = [];
+    
     dom.fileInput.value = '';
     dom.filePreview.classList.add('hidden');
     dom.processBtn.disabled = true;
+    
     hideAllPanels();
+    
     state.chartInstances.forEach(c => c.destroy());
     state.chartInstances = [];
+    dom.chatHistory.innerHTML = `<div class="chat-message assistant"><div class="message-content">Hello! Ask me anything about this dataset.</div></div>`;
+    
+    // Reset tabs
+    $$('.results-nav .tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.results-container .tab-pane').forEach(p => p.classList.remove('active'));
+    $$('.results-nav .tab-btn')[0].classList.add('active');
+    $$('.results-container .tab-pane')[0].classList.add('active');
 }
 
 function showToast(message, type = 'info') {
@@ -513,3 +815,8 @@ function showToast(message, type = 'info') {
     document.body.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 4000);
 }
+
+
+
+// Bootstrap
+document.addEventListener('DOMContentLoaded', initApp);

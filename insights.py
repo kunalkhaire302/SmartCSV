@@ -1,9 +1,8 @@
 """
-Insight Engine – Statistical analysis, chart decision logic, and NLG summaries.
+SmartCSV – Statistical Insights & Chart Engine.
 
-Generates descriptive statistics, correlation matrices, distribution analysis,
-frequency tables, auto-selects chart types, and produces natural language
-insights from cleaned data.
+Generates descriptive statistics, correlations with real p-values,
+frequency tables, and auto-selected chart configurations for Chart.js.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-# from scipy import stats as scipy_stats (Removed to save size)
 
 import config
 from utils.logger import get_logger
@@ -22,511 +20,558 @@ logger = get_logger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Column classification
+#  P-Value Calculation (no scipy dependency)
 # ═══════════════════════════════════════════════════════════════════════
 
-def classify_columns(df: pd.DataFrame) -> dict[str, list[str]]:
-    """Classify columns into numeric, categorical, and datetime groups.
+def _t_cdf(t_val: float, df: int) -> float:
+    """Approximate the CDF of Student's t-distribution.
+
+    Uses the regularized incomplete beta function approximation.
+    Accurate for df >= 1. For large df (>100), uses normal approximation.
 
     Args:
-        df: Input DataFrame.
+        t_val: t-statistic value.
+        df: degrees of freedom.
 
     Returns:
-        Dict with keys ``numeric``, ``categorical``, ``datetime``.
+        CDF value (probability that T <= t_val).
     """
-    result: dict[str, list[str]] = {"numeric": [], "categorical": [], "datetime": []}
-    for col in df.columns:
-        if col.startswith("is_outlier_"):
+    if df <= 0:
+        return 0.5
+
+    # For large df, use normal approximation
+    if df > 100:
+        return _normal_cdf(t_val)
+
+    x = df / (df + t_val * t_val)
+    # Use the relationship: P(T <= t) = 1 - 0.5 * I_x(df/2, 0.5) for t > 0
+    beta_val = _regularized_beta(x, df / 2.0, 0.5)
+
+    if t_val >= 0:
+        return 1.0 - 0.5 * beta_val
+    else:
+        return 0.5 * beta_val
+
+
+def _normal_cdf(x: float) -> float:
+    """Standard normal CDF approximation (Abramowitz & Stegun)."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _regularized_beta(x: float, a: float, b: float, max_iter: int = 200) -> float:
+    """Regularized incomplete beta function I_x(a, b).
+
+    Uses the continued fraction representation.
+    """
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+
+    # Use the continued fraction for better convergence
+    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    front = math.exp(a * math.log(x) + b * math.log(1.0 - x) - lbeta) / a
+
+    # Lentz's algorithm for continued fraction
+    f = 1.0
+    c = 1.0
+    d = 1.0 - (a + b) * x / (a + 1.0)
+    if abs(d) < 1e-30:
+        d = 1e-30
+    d = 1.0 / d
+    f = d
+
+    for m in range(1, max_iter + 1):
+        # Even step
+        numerator = m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m))
+        d = 1.0 + numerator * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        d = 1.0 / d
+        c = 1.0 + numerator / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        f *= d * c
+
+        # Odd step
+        numerator = -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))
+        d = 1.0 + numerator * d
+        if abs(d) < 1e-30:
+            d = 1e-30
+        d = 1.0 / d
+        c = 1.0 + numerator / c
+        if abs(c) < 1e-30:
+            c = 1e-30
+        delta = d * c
+        f *= delta
+
+        if abs(delta - 1.0) < 1e-10:
+            break
+
+    return front * f
+
+
+def pearson_p_value(r: float, n: int) -> float:
+    """Calculate a two-tailed p-value for a Pearson correlation.
+
+    Uses the t-distribution with n-2 degrees of freedom.
+
+    Args:
+        r: Pearson correlation coefficient.
+        n: Number of observations.
+
+    Returns:
+        Two-tailed p-value, or 1.0 if computation fails.
+    """
+    if n <= 2:
+        return 1.0
+
+    if abs(r) >= 1.0:
+        return 0.0 if abs(r) == 1.0 and n > 2 else 1.0
+
+    try:
+        df = n - 2
+        t_stat = r * math.sqrt(df / (1.0 - r * r))
+        # Two-tailed p-value
+        cdf_val = _t_cdf(abs(t_stat), df)
+        p_val = 2.0 * (1.0 - cdf_val)
+        return max(0.0, min(1.0, p_val))
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 1.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Gradient palette for charts
+# ═══════════════════════════════════════════════════════════════════════
+
+CHART_PALETTE = [
+    "rgba(99, 102, 241, 0.7)",    # indigo
+    "rgba(236, 72, 153, 0.7)",     # pink
+    "rgba(34, 197, 94, 0.7)",      # green
+    "rgba(245, 158, 11, 0.7)",     # amber
+    "rgba(6, 182, 212, 0.7)",      # cyan
+    "rgba(139, 92, 246, 0.7)",     # violet
+    "rgba(239, 68, 68, 0.7)",      # red
+    "rgba(20, 184, 166, 0.7)",     # teal
+    "rgba(251, 146, 60, 0.7)",     # orange
+    "rgba(168, 85, 247, 0.7)",     # purple
+]
+
+CHART_PALETTE_SOLID = [c.replace("0.7", "1") for c in CHART_PALETTE]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Public API
+# ═══════════════════════════════════════════════════════════════════════
+
+def generate_insights(df: pd.DataFrame) -> dict[str, Any]:
+    """Generate comprehensive statistical insights for a DataFrame.
+
+    Returns:
+        Dict with ``descriptive_stats``, ``correlations``, ``frequency_tables``,
+        ``insights`` (NLG summaries), and ``charts`` (Chart.js configs).
+    """
+    stats = _descriptive_stats(df)
+    correlations = _correlation_analysis(df)
+    freq_tables = _frequency_tables(df)
+    insights = _generate_nlg_insights(stats, correlations, freq_tables, df)
+    charts = _generate_charts(df, stats, correlations, freq_tables)
+
+    return {
+        "descriptive_stats": stats,
+        "correlations": correlations,
+        "frequency_tables": freq_tables,
+        "insights": insights,
+        "charts": charts,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Descriptive Statistics
+# ═══════════════════════════════════════════════════════════════════════
+
+def _descriptive_stats(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute descriptive statistics for numeric columns."""
+    numeric_df = df.select_dtypes(include=["number"])
+    if numeric_df.empty:
+        return []
+
+    result: list[dict[str, Any]] = []
+    for col in numeric_df.columns:
+        series = numeric_df[col].dropna()
+        if len(series) == 0:
             continue
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            result["datetime"].append(col)
-        elif pd.api.types.is_numeric_dtype(df[col]):
-            result["numeric"].append(col)
-        else:
-            result["categorical"].append(col)
+
+        total = len(df[col])
+        missing = int(df[col].isnull().sum())
+
+        stat = {
+            "column": col,
+            "count": len(series),
+            "mean": round(float(series.mean()), 4),
+            "median": round(float(series.median()), 4),
+            "std": round(float(series.std()), 4) if len(series) > 1 else 0.0,
+            "min": round(float(series.min()), 4),
+            "max": round(float(series.max()), 4),
+            "q1": round(float(series.quantile(0.25)), 4),
+            "q3": round(float(series.quantile(0.75)), 4),
+            "skewness": round(float(series.skew()), 4) if len(series) > 2 else 0.0,
+            "kurtosis": round(float(series.kurtosis()), 4) if len(series) > 3 else 0.0,
+            "missing_pct": round(missing / total * 100, 1) if total > 0 else 0.0,
+        }
+        result.append(stat)
+
     return result
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Descriptive statistics
+#  Correlation Analysis
 # ═══════════════════════════════════════════════════════════════════════
 
-def descriptive_stats(df: pd.DataFrame, numeric_cols: list[str]) -> list[dict[str, Any]]:
-    """Compute descriptive statistics for numeric columns.
+def _correlation_analysis(df: pd.DataFrame) -> dict[str, Any]:
+    """Compute correlation matrix with real p-values.
 
-    Args:
-        df: Input DataFrame.
-        numeric_cols: List of numeric column names.
-
-    Returns:
-        List of stat dictionaries, one per column.
+    Only includes pairs with at least 5 observations and non-constant columns.
     """
-    results: list[dict[str, Any]] = []
-    for col in numeric_cols:
-        series = df[col].dropna()
-        if series.empty:
-            continue
-        results.append({
-            "column": col,
-            "count": int(series.count()),
-            "mean": round(float(series.mean()), 4),
-            "median": round(float(series.median()), 4),
-            "std": round(float(series.std()), 4),
-            "min": round(float(series.min()), 4),
-            "max": round(float(series.max()), 4),
-            "skewness": round(float(series.skew()), 4),
-            "kurtosis": round(float(series.kurtosis()), 4),
-            "missing_pct": round(float(df[col].isna().sum() / len(df) * 100), 2),
-        })
-    return results
+    numeric_df = df.select_dtypes(include=["number"])
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Correlation matrix
-# ═══════════════════════════════════════════════════════════════════════
-
-def correlation_matrix(df: pd.DataFrame, numeric_cols: list[str]) -> dict[str, Any]:
-    """Compute Pearson correlation with p-values for numeric columns.
-
-    Args:
-        df: Input DataFrame.
-        numeric_cols: List of numeric column names.
-
-    Returns:
-        Dict with ``matrix`` (nested dict) and ``significant_pairs`` list.
-    """
-    if len(numeric_cols) < 2:
-        return {"matrix": {}, "significant_pairs": []}
-
-    subset = df[numeric_cols].dropna()
-    corr = subset.corr().round(4)
-    matrix = corr.to_dict()
-
-    significant: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for i, c1 in enumerate(numeric_cols):
-        for c2 in numeric_cols[i + 1:]:
-            if (c1, c2) in seen:
-                continue
-            seen.add((c1, c2))
-            try:
-                # Use numpy for correlation (r)
-                # p-value approx: t = r * sqrt(n-2) / sqrt(1-r^2)
-                # We'll just use a simple threshold for significant correlation r > 0.5 for Vercel optimization
-                c1_data, c2_data = subset[c1], subset[c2]
-                r = np.corrcoef(c1_data, c2_data)[0, 1]
-                
-                # Simple significance check (r > threshold) instead of full p-value calculation
-                # to avoid scipy dependency
-                if abs(r) >= config.CORRELATION_SIGNIFICANCE: 
-                    # Mock p-value for frontend compatibility (or implement T-distribution CDF if critical)
-                    p = 0.001 if abs(r) > 0.8 else 0.049 
-                    
-                    significant.append({
-                        "col1": c1,
-                        "col2": c2,
-                        "correlation": round(float(r), 4),
-                        "p_value": round(float(p), 6),
-                    })
-            except Exception:
-                continue
-
-    significant.sort(key=lambda x: abs(x["correlation"]), reverse=True)
-    return {"matrix": matrix, "significant_pairs": significant}
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Distribution analysis (Freedman-Diaconis binning)
-# ═══════════════════════════════════════════════════════════════════════
-
-def distribution_analysis(
-    df: pd.DataFrame, numeric_cols: list[str],
-) -> list[dict[str, Any]]:
-    """Compute histogram bins using Freedman-Diaconis rule.
-
-    Args:
-        df: Input DataFrame.
-        numeric_cols: Numeric column names.
-
-    Returns:
-        List of dicts with ``column``, ``bins``, ``counts``.
-    """
-    results: list[dict[str, Any]] = []
-    for col in numeric_cols:
-        series = df[col].dropna()
-        if series.empty or len(series) < 2:
-            continue
-        try:
-            iqr = float(series.quantile(0.75) - series.quantile(0.25))
-            n = len(series)
-            if iqr > 0:
-                bin_width = 2 * iqr * (n ** (-1 / 3))
-                n_bins = max(1, int(math.ceil((series.max() - series.min()) / bin_width)))
-            else:
-                n_bins = max(1, int(math.sqrt(n)))
-            n_bins = min(n_bins, 50)  # cap for UI
-            counts, edges = np.histogram(series, bins=n_bins)
-            labels = [f"{edges[i]:.2f}-{edges[i+1]:.2f}" for i in range(len(counts))]
-            results.append({
-                "column": col,
-                "bins": labels,
-                "counts": counts.tolist(),
-                "n_bins": n_bins,
-            })
-        except Exception as exc:
-            logger.warning("Distribution analysis failed for %s: %s", col, exc)
-    return results
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Frequency tables
-# ═══════════════════════════════════════════════════════════════════════
-
-def frequency_tables(
-    df: pd.DataFrame, categorical_cols: list[str],
-) -> list[dict[str, Any]]:
-    """Top-N value counts for categorical columns.
-
-    Args:
-        df: Input DataFrame.
-        categorical_cols: Categorical column names.
-
-    Returns:
-        List of dicts with ``column``, ``values``, ``counts``, ``percentages``.
-    """
-    results: list[dict[str, Any]] = []
-    for col in categorical_cols:
-        vc = df[col].value_counts().head(config.TOP_N_CATEGORIES)
-        total = int(df[col].notna().sum())
-        results.append({
-            "column": col,
-            "values": vc.index.tolist(),
-            "counts": vc.values.tolist(),
-            "percentages": [round(c / total * 100, 1) if total else 0 for c in vc.values],
-            "unique_count": int(df[col].nunique()),
-        })
-    return results
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Chart decision engine
-# ═══════════════════════════════════════════════════════════════════════
-
-def _build_chart_config(
-    chart_type: str,
-    title: str,
-    labels: list,
-    datasets: list[dict],
-    extra: dict | None = None,
-) -> dict[str, Any]:
-    """Build a Chart.js-compatible configuration dict."""
-    cfg: dict[str, Any] = {
-        "chart_type": chart_type,
-        "title": title,
-        "data": {"labels": labels, "datasets": datasets},
-    }
-    if extra:
-        cfg.update(extra)
-    return cfg
-
-
-def auto_select_charts(
-    df: pd.DataFrame,
-    col_types: dict[str, list[str]],
-    corr_data: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Generate chart configurations based on column types and data patterns.
-
-    Args:
-        df: Cleaned DataFrame.
-        col_types: Output of :func:`classify_columns`.
-        corr_data: Output of :func:`correlation_matrix`.
-
-    Returns:
-        List of Chart.js-compatible config dicts.
-    """
-    charts: list[dict[str, Any]] = []
-    numeric = col_types["numeric"]
-    categorical = col_types["categorical"]
-    datetime_cols = col_types["datetime"]
-
-    palette = [
-        "rgba(99, 102, 241, 0.8)",
-        "rgba(236, 72, 153, 0.8)",
-        "rgba(34, 197, 94, 0.8)",
-        "rgba(245, 158, 11, 0.8)",
-        "rgba(14, 165, 233, 0.8)",
-        "rgba(168, 85, 247, 0.8)",
-        "rgba(239, 68, 68, 0.8)",
-        "rgba(20, 184, 166, 0.8)",
+    # Filter out constant columns
+    varying_cols = [
+        col for col in numeric_df.columns
+        if numeric_df[col].nunique(dropna=True) > 1
     ]
 
-    # ── Time series: datetime + numeric → line chart
-    for dt_col in datetime_cols:
-        for num_col in numeric[:3]:
-            sorted_df = df[[dt_col, num_col]].dropna().sort_values(dt_col)
-            if len(sorted_df) < 2:
+    if len(varying_cols) < 2:
+        return {"matrix": {}, "significant_pairs": [], "columns": []}
+
+    numeric_df = numeric_df[varying_cols]
+
+    # Compute correlation matrix
+    corr_matrix = numeric_df.corr()
+
+    # Replace NaN/inf with 0
+    corr_matrix = corr_matrix.fillna(0).replace([np.inf, -np.inf], 0)
+
+    matrix_dict = {
+        col: {
+            row: round(float(corr_matrix.loc[row, col]), 4)
+            for row in corr_matrix.index
+        }
+        for col in corr_matrix.columns
+    }
+
+    # Find significant pairs with real p-values
+    significant: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for i, col_a in enumerate(varying_cols):
+        for col_b in varying_cols[i + 1:]:
+            pair_key = (min(col_a, col_b), max(col_a, col_b))
+            if pair_key in seen_pairs:
                 continue
-            labels = sorted_df[dt_col].dt.strftime("%Y-%m-%d").tolist()
-            # Subsample if too many points
-            if len(labels) > 200:
-                step = len(labels) // 200
-                labels = labels[::step]
-                values = sorted_df[num_col].tolist()[::step]
-            else:
-                values = sorted_df[num_col].tolist()
-            # Convert numpy types to native Python
-            values = [float(v) if not (isinstance(v, float) and math.isnan(v)) else 0 for v in values]
-            charts.append(_build_chart_config(
-                "line",
-                f"{num_col} over time",
-                labels,
-                [{"label": num_col, "data": values, "borderColor": palette[0],
-                  "backgroundColor": palette[0].replace("0.8", "0.1"),
-                  "fill": True, "tension": 0.3}],
-            ))
+            seen_pairs.add(pair_key)
 
-    # ── Categorical + numeric → bar chart
-    for cat_col in categorical[:3]:
-        for num_col in numeric[:2]:
-            grouped = df.groupby(cat_col)[num_col].mean().nlargest(config.TOP_N_CATEGORIES)
-            if grouped.empty:
+            # Count common non-null observations
+            mask = numeric_df[[col_a, col_b]].dropna()
+            n = len(mask)
+            if n < 5:
                 continue
-            charts.append(_build_chart_config(
-                "bar",
-                f"Average {num_col} by {cat_col}",
-                [str(v) for v in grouped.index.tolist()],
-                [{"label": f"Avg {num_col}", "data": [round(float(v), 2) for v in grouped.values],
-                  "backgroundColor": palette[:len(grouped)]}],
-            ))
 
-    # ── Single categorical → pie / donut
-    for cat_col in categorical[:3]:
-        vc = df[cat_col].value_counts().head(config.MAX_PIE_CATEGORIES)
-        if vc.empty:
+            r = float(corr_matrix.loc[col_a, col_b])
+            if not math.isfinite(r):
+                continue
+
+            p = pearson_p_value(r, n)
+
+            if p < config.CORRELATION_P_VALUE_THRESHOLD and abs(r) > 0.1:
+                significant.append({
+                    "column_a": col_a,
+                    "column_b": col_b,
+                    "correlation": round(r, 4),
+                    "p_value": round(p, 6),
+                    "n_observations": n,
+                    "strength": _correlation_strength(r),
+                })
+
+    # Sort by absolute correlation
+    significant.sort(key=lambda x: abs(x["correlation"]), reverse=True)
+
+    return {
+        "matrix": matrix_dict,
+        "significant_pairs": significant[:20],
+        "columns": varying_cols,
+    }
+
+
+def _correlation_strength(r: float) -> str:
+    """Classify correlation strength."""
+    abs_r = abs(r)
+    if abs_r >= 0.8:
+        return "very strong"
+    elif abs_r >= 0.6:
+        return "strong"
+    elif abs_r >= 0.4:
+        return "moderate"
+    elif abs_r >= 0.2:
+        return "weak"
+    return "negligible"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Frequency Tables
+# ═══════════════════════════════════════════════════════════════════════
+
+def _frequency_tables(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Compute frequency tables for categorical and low-cardinality columns."""
+    tables: list[dict[str, Any]] = []
+
+    for col in df.columns:
+        nunique = df[col].nunique(dropna=True)
+        if nunique < 2 or nunique > 50:
             continue
-        chart_type = "pie" if len(vc) <= config.MAX_PIE_CATEGORIES else "bar"
-        charts.append(_build_chart_config(
-            chart_type if chart_type == "pie" else "bar",
-            f"Distribution of {cat_col}",
-            [str(v) for v in vc.index.tolist()],
-            [{"label": cat_col, "data": vc.values.tolist(),
-              "backgroundColor": palette[:len(vc)]}],
-        ))
 
-    # ── Single numeric → histogram (use distribution data)
-    for num_col in numeric[:4]:
-        series = df[num_col].dropna()
-        if len(series) < 2:
+        # Skip numeric columns with too many unique values
+        if pd.api.types.is_numeric_dtype(df[col]) and nunique > 20:
             continue
-        counts, edges = np.histogram(series, bins=min(30, max(5, int(math.sqrt(len(series))))))
-        labels = [f"{edges[i]:.1f}" for i in range(len(counts))]
-        charts.append(_build_chart_config(
-            "bar",
-            f"Distribution of {num_col}",
-            labels,
-            [{"label": num_col, "data": counts.tolist(),
-              "backgroundColor": palette[1]}],
-        ))
 
-    # ── Scatter: numeric vs numeric (top correlated pairs)
-    if corr_data.get("significant_pairs"):
-        for pair in corr_data["significant_pairs"][:3]:
-            c1, c2 = pair["col1"], pair["col2"]
-            subset = df[[c1, c2]].dropna()
-            if len(subset) > 500:
-                subset = subset.sample(500, random_state=42)
-            scatter_data = [{"x": round(float(r[c1]), 4), "y": round(float(r[c2]), 4)} for _, r in subset.iterrows()]
-            charts.append({
-                "chart_type": "scatter",
-                "title": f"{c1} vs {c2} (r={pair['correlation']:.2f})",
-                "data": {
-                    "datasets": [{
-                        "label": f"{c1} vs {c2}",
-                        "data": scatter_data,
-                        "backgroundColor": palette[4],
-                    }],
-                },
-            })
+        vc = df[col].value_counts().head(config.TOP_N_CATEGORIES)
+        total = len(df[col].dropna())
 
-    # ── Correlation heatmap data (rendered as table in frontend)
-    if len(numeric) >= 2 and corr_data.get("matrix"):
-        charts.append({
-            "chart_type": "heatmap",
-            "title": "Correlation Matrix",
-            "columns": numeric,
-            "matrix": corr_data["matrix"],
+        values = [
+            {
+                "value": str(idx),
+                "count": int(cnt),
+                "percentage": round(cnt / total * 100, 1) if total > 0 else 0,
+            }
+            for idx, cnt in vc.items()
+        ]
+
+        tables.append({
+            "column": col,
+            "unique_count": nunique,
+            "values": values,
         })
 
-    return charts
+    # Sort by unique count (ascending — most likely to be meaningful categories)
+    tables.sort(key=lambda x: x["unique_count"])
+    return tables[:10]  # Cap at 10 tables
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  NLG Summary Engine – template-based natural language insights
+#  Natural Language Insights (Template-Based)
 # ═══════════════════════════════════════════════════════════════════════
 
-def generate_nlg_insights(
+def _generate_nlg_insights(
+    stats: list[dict],
+    corr: dict,
+    freq: list[dict],
     df: pd.DataFrame,
-    col_types: dict[str, list[str]],
-    stats_data: list[dict[str, Any]],
-    corr_data: dict[str, Any],
-    freq_data: list[dict[str, Any]],
 ) -> list[str]:
-    """Generate natural language insight sentences from data analysis.
+    """Generate natural language insights from statistical analysis.
 
-    Args:
-        df: Cleaned DataFrame.
-        col_types: Column classification dict.
-        stats_data: Descriptive statistics list.
-        corr_data: Correlation data dict.
-        freq_data: Frequency table data list.
-
-    Returns:
-        List of insight sentences.
+    Template-based for reliability; AI summaries are layered on top.
     """
     insights: list[str] = []
 
-    # ── Dataset overview
-    n_rows, n_cols = df.shape
+    # Dataset overview
     insights.append(
-        f"The dataset contains {n_rows:,} records across {n_cols} columns "
-        f"({len(col_types['numeric'])} numeric, {len(col_types['categorical'])} categorical, "
-        f"{len(col_types['datetime'])} datetime)."
+        f"Dataset contains {len(df):,} rows and {len(df.columns)} columns "
+        f"({len(df.select_dtypes(include='number').columns)} numeric, "
+        f"{len(df.select_dtypes(include='object').columns)} categorical)."
     )
 
-    # ── Numeric column extremes
-    for s in stats_data:
-        col = s["column"]
+    # Missing data summary
+    total_missing = int(df.isnull().sum().sum())
+    if total_missing > 0:
+        pct = round(total_missing / (len(df) * len(df.columns)) * 100, 1)
         insights.append(
-            f"'{col}' ranges from {s['min']:,.2f} to {s['max']:,.2f} "
-            f"(mean: {s['mean']:,.2f}, median: {s['median']:,.2f})."
+            f"Found {total_missing:,} missing values ({pct}% of all cells). "
+            f"Columns with most missing: "
+            + ", ".join(
+                f"{col} ({val})"
+                for col, val in df.isnull().sum().nlargest(3).items()
+                if val > 0
+            )
+            + "."
         )
-        if abs(s["skewness"]) > 1:
+
+    # Skewness insights
+    for s in stats[:5]:
+        if abs(s.get("skewness", 0)) > 2:
             direction = "right" if s["skewness"] > 0 else "left"
             insights.append(
-                f"  → '{col}' is significantly skewed to the {direction} "
-                f"(skewness: {s['skewness']:.2f})."
+                f"'{s['column']}' is heavily {direction}-skewed "
+                f"(skewness = {s['skewness']:.2f}). "
+                f"Median ({s['median']:,.2f}) differs significantly from mean ({s['mean']:,.2f})."
             )
 
-    # ── Max and min across all numeric
-    if stats_data:
-        max_col = max(stats_data, key=lambda x: x["max"])
+    # Correlation insights (only significant ones)
+    sig_pairs = corr.get("significant_pairs", [])
+    for pair in sig_pairs[:3]:
+        direction = "positive" if pair["correlation"] > 0 else "negative"
         insights.append(
-            f"The highest value in the dataset is {max_col['max']:,.2f} "
-            f"in the '{max_col['column']}' column."
+            f"{pair['strength'].capitalize()} {direction} correlation "
+            f"between '{pair['column_a']}' and '{pair['column_b']}' "
+            f"(r = {pair['correlation']:.3f}, p = {pair['p_value']:.4f}, "
+            f"n = {pair['n_observations']})."
         )
 
-    # ── Strongest correlations
-    sig_pairs = corr_data.get("significant_pairs", [])
-    if sig_pairs:
-        top = sig_pairs[0]
-        strength = "strong" if abs(top["correlation"]) > 0.7 else "moderate"
-        direction = "positive" if top["correlation"] > 0 else "negative"
-        insights.append(
-            f"The strongest correlation is a {strength} {direction} relationship "
-            f"between '{top['col1']}' and '{top['col2']}' (r = {top['correlation']:.2f}, "
-            f"p = {top['p_value']:.4f})."
-        )
-
-    # ── Top categories
-    for freq in freq_data:
-        if freq["values"] and freq["percentages"]:
-            top_val = freq["values"][0]
-            top_pct = freq["percentages"][0]
+    # Top category insights
+    for ft in freq[:2]:
+        top_val = ft["values"][0] if ft["values"] else None
+        if top_val:
             insights.append(
-                f"In '{freq['column']}', the most frequent value is '{top_val}' "
-                f"({top_pct:.1f}% of records). There are {freq['unique_count']} unique values."
+                f"Most common value in '{ft['column']}': "
+                f"'{top_val['value']}' ({top_val['percentage']}%, "
+                f"{top_val['count']:,} occurrences out of {ft['unique_count']} unique values)."
             )
 
-    # ── Time-series trend (simple linear regression)
-    for dt_col in col_types["datetime"]:
-        for num_col in col_types["numeric"][:2]:
-            sub = df[[dt_col, num_col]].dropna().sort_values(dt_col)
-            if len(sub) < 10:
-                continue
-            try:
-                x = np.arange(len(sub), dtype=float)
-                y = sub[num_col].values.astype(float)
-                # slope, intercept, r_value, _, _ = scipy_stats.linregress(x, y)
-                # Numpy equivalent:
-                slope, intercept = np.polyfit(x, y, 1)
-                
-                # Calculate r_squared
-                y_pred = slope * x + intercept
-                ss_res = np.sum((y - y_pred) ** 2)
-                ss_tot = np.sum((y - np.mean(y)) ** 2)
-                r_sq = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-                
-                trend = "upward" if slope > 0 else "downward"
-                insights.append(
-                    f"'{num_col}' shows a {trend} trend over time "
-                    f"(R² = {r_sq:.2f})."
-                )
-            except Exception:
-                continue
+    # Outlier-prone columns
+    for s in stats:
+        iqr = s.get("q3", 0) - s.get("q1", 0)
+        if iqr > 0 and s.get("max", 0) > s.get("q3", 0) + 3 * iqr:
+            insights.append(
+                f"'{s['column']}' has extreme outliers: "
+                f"max ({s['max']:,.2f}) is far beyond the IQR range "
+                f"[{s['q1']:,.2f}, {s['q3']:,.2f}]."
+            )
 
-    return insights
+    return insights[:10]
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Main entry point
+#  Chart Generation
 # ═══════════════════════════════════════════════════════════════════════
 
-def generate_full_insights(df: pd.DataFrame) -> dict[str, Any]:
-    """Run all insight analyses on a cleaned DataFrame.
+def _generate_charts(
+    df: pd.DataFrame,
+    stats: list[dict],
+    corr: dict,
+    freq: list[dict],
+) -> list[dict[str, Any]]:
+    """Generate Chart.js chart configurations.
 
-    Tries AI-powered summaries via Claude first. Falls back to
-    template-based NLG if the API key is missing or the call fails.
-
-    Args:
-        df: Cleaned DataFrame (output of ETL pipeline).
-
-    Returns:
-        Comprehensive insights dictionary.
+    Uses a scoring system to select the most informative charts,
+    capped at MAX_CHARTS.
     """
-    logger.info("Generating insights for %d rows × %d cols", len(df), len(df.columns))
+    candidates: list[tuple[int, dict[str, Any]]] = []
 
-    col_types = classify_columns(df)
-    stats = descriptive_stats(df, col_types["numeric"])
-    corr = correlation_matrix(df, col_types["numeric"])
-    dist = distribution_analysis(df, col_types["numeric"])
-    freq = frequency_tables(df, col_types["categorical"])
-    charts = auto_select_charts(df, col_types, corr)
+    # ── Histograms for numeric columns ─────────────────────────────
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    for col in numeric_cols[:6]:
+        series = df[col].dropna()
+        if len(series) < 5:
+            continue
 
-    summary_info = {
-        "total_rows": len(df),
-        "total_columns": len(df.columns),
-        "numeric_columns": len(col_types["numeric"]),
-        "categorical_columns": len(col_types["categorical"]),
-        "datetime_columns": len(col_types["datetime"]),
-    }
+        # Score: higher for skewed distributions (more informative)
+        skew = abs(float(series.skew())) if len(series) > 2 else 0
+        score = 60 + min(skew * 10, 30)
 
-    # Try AI-powered insights first
-    ai_generated = False
-    tokens_used = 0
-    try:
-        from ai.llm_client import generate_ai_summary, is_available
-        if is_available():
-            result = generate_ai_summary(stats, corr, freq, summary_info)
-            nlg = result["insights"]
-            ai_generated = True
-            tokens_used = result.get("tokens_used", 0)
-            logger.info("AI summary used (%d tokens)", tokens_used)
-        else:
-            nlg = generate_nlg_insights(df, col_types, stats, corr, freq)
-    except Exception as exc:
-        logger.warning("AI summary failed, falling back to template: %s", exc)
-        nlg = generate_nlg_insights(df, col_types, stats, corr, freq)
+        bins = min(30, max(10, int(len(series) ** 0.5)))
+        counts, edges = np.histogram(series, bins=bins)
 
-    return {
-        "column_types": col_types,
-        "descriptive_stats": stats,
-        "correlation": corr,
-        "distributions": dist,
-        "frequency_tables": freq,
-        "charts": charts,
-        "insights": nlg,
-        "ai_generated": ai_generated,
-        "tokens_used": tokens_used,
-        "summary": summary_info,
-    }
+        labels = [f"{edges[i]:.1f}" for i in range(len(edges) - 1)]
+        chart = {
+            "chart_type": "bar",
+            "title": f"Distribution of {col}",
+            "data": {
+                "labels": labels,
+                "datasets": [{
+                    "label": col,
+                    "data": counts.tolist(),
+                    "backgroundColor": CHART_PALETTE[0],
+                    "borderColor": CHART_PALETTE_SOLID[0],
+                    "borderWidth": 1,
+                }],
+            },
+        }
+        candidates.append((int(score), chart))
+
+    # ── Bar charts for categorical columns ─────────────────────────
+    for ft in freq[:5]:
+        if len(ft["values"]) < 2:
+            continue
+
+        score = 70 if ft["unique_count"] <= config.MAX_PIE_CATEGORIES else 50
+
+        labels = [v["value"] for v in ft["values"]]
+        data_vals = [v["count"] for v in ft["values"]]
+        colors = CHART_PALETTE[: len(labels)]
+
+        chart = {
+            "chart_type": "bar",
+            "title": f"Frequency: {ft['column']}",
+            "data": {
+                "labels": labels,
+                "datasets": [{
+                    "label": ft["column"],
+                    "data": data_vals,
+                    "backgroundColor": colors,
+                    "borderWidth": 0,
+                }],
+            },
+        }
+        candidates.append((score, chart))
+
+        # Pie chart for low-cardinality
+        if ft["unique_count"] <= config.MAX_PIE_CATEGORIES:
+            pie = {
+                "chart_type": "doughnut",
+                "title": f"Proportion: {ft['column']}",
+                "data": {
+                    "labels": labels,
+                    "datasets": [{
+                        "data": data_vals,
+                        "backgroundColor": colors,
+                        "borderWidth": 2,
+                        "borderColor": "rgba(0,0,0,0.1)",
+                    }],
+                },
+            }
+            candidates.append((score - 10, pie))
+
+    # ── Scatter plots for top correlations ──────────────────────────
+    sig_pairs = corr.get("significant_pairs", [])
+    for pair in sig_pairs[:3]:
+        col_a, col_b = pair["column_a"], pair["column_b"]
+        sample = df[[col_a, col_b]].dropna()
+        if len(sample) > 500:
+            sample = sample.sample(500, random_state=42)
+
+        score = 80 + int(abs(pair["correlation"]) * 20)
+
+        scatter = {
+            "chart_type": "scatter",
+            "title": f"{col_a} vs {col_b} (r={pair['correlation']:.3f})",
+            "data": {
+                "datasets": [{
+                    "label": f"{col_a} vs {col_b}",
+                    "data": [
+                        {"x": round(float(row[col_a]), 4), "y": round(float(row[col_b]), 4)}
+                        for _, row in sample.iterrows()
+                    ],
+                    "backgroundColor": CHART_PALETTE[4],
+                    "pointRadius": 3,
+                }],
+            },
+        }
+        candidates.append((score, scatter))
+
+    # ── Correlation heatmap ─────────────────────────────────────────
+    corr_cols = corr.get("columns", [])
+    corr_matrix = corr.get("matrix", {})
+    if len(corr_cols) >= 2:
+        heatmap = {
+            "chart_type": "heatmap",
+            "title": "Correlation Matrix",
+            "columns": corr_cols[:15],  # Limit for readability
+            "matrix": corr_matrix,
+        }
+        candidates.append((90, heatmap))
+
+    # ── Select top charts by score ──────────────────────────────────
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    selected = [chart for _, chart in candidates[: config.MAX_CHARTS]]
+
+    logger.info("Generated %d charts from %d candidates", len(selected), len(candidates))
+    return selected

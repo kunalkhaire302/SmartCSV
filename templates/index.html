@@ -22,6 +22,11 @@
         </svg>
         <span class="nav-title">Smart<span class="accent">CSV</span></span>
     </div>
+    
+    <div class="nav-links" id="navLinks">
+        <!-- Auth links will be injected here via JS -->
+    </div>
+
     <div class="nav-actions">
         <button class="btn-icon" id="themeToggle" title="Toggle theme" aria-label="Toggle dark/light mode">
             <svg id="iconSun" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -30,8 +35,24 @@
     </div>
 </nav>
 
-<!-- ═══════════════ Hero / Upload Section ═══════════════ -->
+<!-- ═══════════════ App Container ═══════════════ -->
 <main class="container">
+    
+    <!-- ═══════════════ Dashboard View (Hidden until Auth) ═══════════════ -->
+    <section class="dashboard hidden" id="dashboardView">
+        <div class="dashboard-header">
+            <h2>Welcome back</h2>
+            <div class="quota-info" id="quotaInfo">
+                <!-- Quota bars injected here -->
+            </div>
+        </div>
+        <div class="dashboard-tabs">
+            <button class="tab-btn active" data-tab="new-upload">New Upload</button>
+            <button class="tab-btn" data-tab="history">History</button>
+        </div>
+    </section>
+
+    <!-- ═══════════════ Hero / Upload Section ═══════════════ -->
     <section class="hero" id="heroSection">
         <h1 class="hero-title">Upload. <span class="accent">Transform.</span> Discover.</h1>
         <p class="hero-subtitle">Drop your CSV and let SmartCSV clean, analyse, and visualise your data in seconds.</p>
@@ -43,7 +64,7 @@
                     <path d="M40 32v6a2 2 0 01-2 2H10a2 2 0 01-2-2v-6" stroke-linecap="round"/>
                 </svg>
                 <p class="upload-text">Drag & drop your CSV here</p>
-                <p class="upload-hint">or <span class="link">browse files</span> · Max 10 MB</p>
+                <p class="upload-hint">or <span class="link">browse files</span> · Max <span id="maxFileSizeDisplay">10</span> MB</p>
             </div>
             <input type="file" id="fileInput" accept=".csv" hidden>
         </div>
@@ -59,12 +80,30 @@
         </div>
     </section>
 
-    <!-- ═══════════════ Metadata Panel ═══════════════ -->
+    <!-- ═══════════════ Metadata & Configuration Panel ═══════════════ -->
     <section class="panel hidden" id="metadataPanel">
         <div class="panel-header">
-            <h2 class="panel-title">📋 File Metadata</h2>
+            <h2 class="panel-title">📋 File Metadata & Configuration</h2>
         </div>
+        
+        <!-- Quality Warning Alert -->
+        <div id="qualityAlert" class="alert hidden"></div>
+
         <div class="meta-grid" id="metaGrid"></div>
+        
+        <div class="config-section">
+            <h3 class="config-title">ETL Settings</h3>
+            <div class="form-group">
+                <label for="outlierHandling">Outlier Handling</label>
+                <select id="outlierHandling" class="form-control">
+                    <option value="flag">Flag (add outlier column)</option>
+                    <option value="cap">Cap (winsorize to IQR limits)</option>
+                    <option value="remove">Remove (drop rows)</option>
+                    <option value="keep">Keep (detect only)</option>
+                </select>
+            </div>
+        </div>
+
         <div class="panel-actions">
             <button class="btn-primary" id="processBtn" disabled>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -82,47 +121,120 @@
         </div>
     </section>
 
-    <!-- ═══════════════ ETL Summary ═══════════════ -->
-    <section class="panel hidden" id="etlPanel">
-        <div class="panel-header">
-            <h2 class="panel-title">⚙️ ETL Summary</h2>
-        </div>
-        <div class="etl-content" id="etlContent"></div>
-    </section>
+    <!-- ═══════════════ Results Navigation (Tabs) ═══════════════ -->
+    <div class="results-nav hidden" id="resultsNav">
+        <button class="tab-btn active" data-target="overviewTab">Overview</button>
+        <button class="tab-btn" data-target="statsTab">Statistics</button>
+        <button class="tab-btn" data-target="chartsTab">Charts</button>
+        <button class="tab-btn" data-target="chatTab" id="chatTabBtn">Chat with Data <span class="badge">PRO</span></button>
+    </div>
 
-    <!-- ═══════════════ Insight Cards ═══════════════ -->
-    <section class="panel hidden" id="insightsPanel">
-        <div class="panel-header">
-            <h2 class="panel-title">🧠 AI Insights</h2>
-        </div>
-        <div class="insight-cards" id="insightCards"></div>
-    </section>
+    <div class="results-container hidden" id="resultsContainer">
+        <!-- ═══════════════ Tab: Overview ═══════════════ -->
+        <div class="tab-pane active" id="overviewTab">
+            <section class="panel" id="etlPanel">
+                <div class="panel-header">
+                    <h2 class="panel-title">⚙️ ETL Summary</h2>
+                </div>
+                <div class="etl-content" id="etlContent"></div>
+            </section>
 
-    <!-- ═══════════════ Stats Summary ═══════════════ -->
-    <section class="panel hidden" id="statsPanel">
-        <div class="panel-header">
-            <h2 class="panel-title">📊 Descriptive Statistics</h2>
+            <section class="panel" id="insightsPanel">
+                <div class="panel-header">
+                    <h2 class="panel-title">🧠 AI Insights</h2>
+                </div>
+                <div class="insight-cards" id="insightCards"></div>
+            </section>
         </div>
-        <div class="stats-table-wrapper" id="statsTable"></div>
-    </section>
 
-    <!-- ═══════════════ Charts Grid ═══════════════ -->
-    <section class="panel hidden" id="chartsPanel">
-        <div class="panel-header">
-            <h2 class="panel-title">📈 Visualisations</h2>
+        <!-- ═══════════════ Tab: Statistics ═══════════════ -->
+        <div class="tab-pane" id="statsTab">
+            <section class="panel" id="statsPanel">
+                <div class="panel-header">
+                    <h2 class="panel-title">📊 Descriptive Statistics</h2>
+                </div>
+                <div class="stats-table-wrapper" id="statsTable"></div>
+            </section>
         </div>
-        <div class="charts-grid" id="chartsGrid"></div>
-    </section>
 
-    <!-- ═══════════════ Download Bar ═══════════════ -->
+        <!-- ═══════════════ Tab: Charts ═══════════════ -->
+        <div class="tab-pane" id="chartsTab">
+            <section class="panel" id="chartsPanel">
+                <div class="panel-header">
+                    <h2 class="panel-title">📈 Visualisations</h2>
+                </div>
+                <div class="charts-grid" id="chartsGrid"></div>
+            </section>
+        </div>
+
+        <!-- ═══════════════ Tab: Chat ═══════════════ -->
+        <div class="tab-pane" id="chatTab">
+            <section class="panel chat-panel" id="chatPanel">
+                <div class="chat-header">
+                    <h2 class="panel-title">💬 Chat with Data</h2>
+                    <span class="chat-quota" id="chatQuota"></span>
+                </div>
+                <div class="chat-history" id="chatHistory">
+                    <div class="chat-message assistant">
+                        <div class="message-content">Hello! Ask me anything about this dataset. For example: "What is the average revenue?" or "Are there any outliers in age?"</div>
+                    </div>
+                </div>
+                <div class="chat-input-wrapper">
+                    <input type="text" id="chatInput" class="chat-input" placeholder="Ask a question..." autocomplete="off">
+                    <button class="btn-primary btn-icon" id="chatSendBtn" aria-label="Send">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ═══════════════ Download & Share Bar ═══════════════ -->
     <section class="download-bar hidden" id="downloadBar">
         <div class="download-info">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span id="downloadName"></span>
         </div>
-        <button class="btn-primary btn-sm" id="downloadBtn">Download Cleaned CSV</button>
+        <div class="download-actions">
+            <button class="btn-secondary btn-sm" id="shareBtn">Share Report</button>
+            <button class="btn-primary btn-sm" id="downloadBtn">Download CSV</button>
+        </div>
     </section>
 </main>
+
+<!-- ═══════════════ Share Modal ═══════════════ -->
+<div class="modal hidden" id="shareModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Share Report</h3>
+            <button class="btn-icon modal-close" id="closeShareModal">✕</button>
+        </div>
+        <div class="modal-body">
+            <p>Create a public link to share these insights with your team.</p>
+            <div class="form-group">
+                <label for="shareTitle">Report Title (Optional)</label>
+                <input type="text" id="shareTitle" class="form-control" placeholder="e.g. Q3 Sales Analysis">
+            </div>
+            <div class="form-group">
+                <label for="shareExpiry">Link Expiry</label>
+                <select id="shareExpiry" class="form-control">
+                    <option value="72">3 Days</option>
+                    <option value="168">7 Days</option>
+                    <option value="720">30 Days</option>
+                </select>
+            </div>
+            <div class="share-link-box hidden" id="shareLinkBox">
+                <input type="text" id="shareLinkInput" class="form-control" readonly>
+                <button class="btn-primary" id="copyShareLinkBtn">Copy</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" id="cancelShareBtn">Cancel</button>
+            <button class="btn-primary" id="createShareBtn">Create Link</button>
+        </div>
+    </div>
+</div>
+
 
 <!-- ═══════════════ Footer ═══════════════ -->
 <footer class="footer">

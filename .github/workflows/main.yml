@@ -35,8 +35,9 @@ jobs:
         
     - name: Test with pytest
       run: |
-        pytest tests/ test_app.py -v --cov=. || true  # Temporarily allow fail if not fully mockable without keys
+        pytest tests/ -v --cov=. --cov-report=xml --cov-fail-under=60
       env:
+        PYTHONPATH: .
         STORAGE_BACKEND: local
         FLASK_ENV: testing
         

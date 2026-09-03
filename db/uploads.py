@@ -1,5 +1,7 @@
 """
-CRUD operations for the ``uploads`` table.
+Domain-specific repository for the ``uploads`` table.
+
+All queries enforce user ownership where applicable.
 """
 
 from __future__ import annotations
@@ -66,6 +68,43 @@ def get_user_uploads(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
     )
 
 
+def get_user_dataset(user_id: str, dataset_id: str) -> dict[str, Any] | None:
+    """Get a specific upload record, verified to belong to the user.
+
+    This is the primary ownership-verified accessor.
+
+    Args:
+        user_id: Authenticated user UUID.
+        dataset_id: Upload record UUID.
+
+    Returns:
+        Upload dict or None if not found or not owned by user.
+    """
+    rows = connection.select(
+        TABLE,
+        filters={"id": f"eq.{dataset_id}", "user_id": f"eq.{user_id}"},
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def get_upload_by_id(upload_id: str) -> dict[str, Any] | None:
+    """Get an upload record by ID (no ownership check — use for internal lookups only).
+
+    Args:
+        upload_id: Upload record UUID.
+
+    Returns:
+        Upload dict or None.
+    """
+    rows = connection.select(
+        TABLE,
+        filters={"id": f"eq.{upload_id}"},
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
 def update_upload_status(
     upload_id: str,
     status: str,
@@ -112,3 +151,95 @@ def get_upload_by_key(storage_key: str) -> dict[str, Any] | None:
         limit=1,
     )
     return rows[0] if rows else None
+
+
+def get_user_upload_by_key(user_id: str, storage_key: str) -> dict[str, Any] | None:
+    """Find an upload record by storage key, verified to belong to the user.
+
+    Args:
+        user_id: Authenticated user UUID.
+        storage_key: The upload storage key.
+
+    Returns:
+        Upload dict or None.
+    """
+    rows = connection.select(
+        TABLE,
+        filters={
+            "storage_key": f"eq.{storage_key}",
+            "user_id": f"eq.{user_id}",
+        },
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def get_user_upload_by_processed_key(user_id: str, processed_key: str) -> dict[str, Any] | None:
+    """Find an upload record by processed key, verified to belong to the user.
+
+    Args:
+        user_id: Authenticated user UUID.
+        processed_key: The processed storage key.
+
+    Returns:
+        Upload dict or None.
+    """
+    rows = connection.select(
+        TABLE,
+        filters={
+            "processed_key": f"eq.{processed_key}",
+            "user_id": f"eq.{user_id}",
+        },
+        limit=1,
+    )
+    return rows[0] if rows else None
+
+
+def delete_upload(upload_id: str, user_id: str) -> bool:
+    """Delete an upload record (owner only).
+
+    Args:
+        upload_id: Upload UUID.
+        user_id: Owner user UUID.
+
+    Returns:
+        True if deleted.
+    """
+    try:
+        connection.delete(
+            TABLE,
+            filters={"id": f"eq.{upload_id}", "user_id": f"eq.{user_id}"},
+        )
+        logger.info("Deleted upload %s for user %s", upload_id, user_id)
+        return True
+    except Exception as exc:
+        logger.warning("Failed to delete upload: %s", exc)
+        return False
+
+
+def count_user_uploads_this_month(user_id: str) -> int:
+    """Count uploads created this calendar month for a user.
+
+    Uses created_at-based counting instead of a mutable counter,
+    making it automatically correct without needing manual resets.
+
+    Args:
+        user_id: User UUID.
+
+    Returns:
+        Number of uploads this month.
+    """
+    try:
+        rows = connection.select(
+            TABLE,
+            filters={
+                "user_id": f"eq.{user_id}",
+                "created_at": "gte.now()-interval '1 month'",
+            },
+            limit=1000,
+            columns="id",
+        )
+        return len(rows)
+    except Exception as exc:
+        logger.warning("Failed to count monthly uploads: %s", exc)
+        return 0

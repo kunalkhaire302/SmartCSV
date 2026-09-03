@@ -7,113 +7,8 @@
     <meta name="description" content="Upload CSV files, get automated ETL cleaning, AI-powered insights, and share interactive reports. Built for data teams.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root {
-            --bg: #0a0a0f;
-            --surface: #12121a;
-            --surface-2: #1a1a28;
-            --border: #2a2a3a;
-            --text: #e8e8f0;
-            --text-dim: #8888a0;
-            --accent: #6c5ce7;
-            --accent-glow: #a78bfa;
-            --green: #10b981;
-            --gradient: linear-gradient(135deg, #6c5ce7 0%, #a78bfa 50%, #06b6d4 100%);
-        }
-        html { scroll-behavior: smooth; }
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            overflow-x: hidden;
-        }
-
-        /* ── Navbar ─── */
-        nav {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 1rem 2rem;
-            background: rgba(10, 10, 15, 0.85);
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--border);
-        }
-        .logo { font-size: 1.3rem; font-weight: 800; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .nav-links { display: flex; gap: 2rem; align-items: center; }
-        .nav-links a { color: var(--text-dim); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
-        .nav-links a:hover { color: var(--text); }
-        .btn {
-            display: inline-flex; align-items: center; gap: 0.5rem;
-            padding: 0.6rem 1.5rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem;
-            text-decoration: none; transition: all 0.3s; cursor: pointer; border: none;
-        }
-        .btn-primary { background: var(--gradient); color: #fff; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(108, 92, 231, 0.4); }
-        .btn-outline { border: 1px solid var(--border); color: var(--text); background: transparent; }
-        .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
-
-        /* ── Hero ─── */
-        .hero {
-            min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            text-align: center; padding: 8rem 2rem 4rem;
-            background: radial-gradient(ellipse at 50% 0%, rgba(108, 92, 231, 0.15) 0%, transparent 60%);
-        }
-        .badge {
-            display: inline-block; padding: 0.4rem 1.2rem; border-radius: 999px;
-            background: rgba(108, 92, 231, 0.15); border: 1px solid rgba(108, 92, 231, 0.3);
-            color: var(--accent-glow); font-size: 0.85rem; font-weight: 500; margin-bottom: 2rem;
-        }
-        .hero h1 { font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem; max-width: 800px; }
-        .hero h1 span { background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .hero p { font-size: 1.2rem; color: var(--text-dim); max-width: 600px; margin-bottom: 2.5rem; }
-        .hero-cta { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
-
-        /* ── Features ─── */
-        .section { padding: 6rem 2rem; max-width: 1200px; margin: 0 auto; }
-        .section-header { text-align: center; margin-bottom: 4rem; }
-        .section-header h2 { font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem; }
-        .section-header p { color: var(--text-dim); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
-        .feature-card {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-            padding: 2rem; transition: all 0.3s;
-        }
-        .feature-card:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(108, 92, 231, 0.1); }
-        .feature-icon { font-size: 2rem; margin-bottom: 1rem; }
-        .feature-card h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; }
-        .feature-card p { color: var(--text-dim); font-size: 0.95rem; }
-
-        /* ── Pricing ─── */
-        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; max-width: 960px; margin: 0 auto; }
-        .price-card {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-            padding: 2.5rem; text-align: center; position: relative;
-        }
-        .price-card.featured { border-color: var(--accent); background: var(--surface-2); }
-        .price-card.featured::before {
-            content: 'Most Popular'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-            background: var(--gradient); color: #fff; padding: 0.3rem 1rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
-        }
-        .price-card h3 { font-size: 1.3rem; font-weight: 600; margin-bottom: 0.5rem; }
-        .price { font-size: 3rem; font-weight: 800; margin: 1rem 0; }
-        .price span { font-size: 1rem; color: var(--text-dim); font-weight: 400; }
-        .price-features { list-style: none; margin: 1.5rem 0; text-align: left; }
-        .price-features li { padding: 0.5rem 0; color: var(--text-dim); font-size: 0.95rem; }
-        .price-features li::before { content: '✓ '; color: var(--green); font-weight: 700; }
-
-        /* ── Footer ─── */
-        footer {
-            padding: 3rem 2rem; text-align: center; border-top: 1px solid var(--border);
-            color: var(--text-dim); font-size: 0.9rem;
-        }
-
-        @media (max-width: 768px) {
-            .nav-links { display: none; }
-            .hero h1 { font-size: 2.2rem; }
-            .pricing-grid { grid-template-columns: 1fr; }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/landing.css">
 </head>
 <body>
     <nav>
@@ -121,7 +16,8 @@
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
-            <a href="/" class="btn btn-primary">Open Dashboard →</a>
+            <a href="/login">Log In</a>
+            <a href="/register" class="btn btn-primary">Sign Up</a>
         </div>
     </nav>
 
@@ -130,7 +26,7 @@
         <h1>Turn raw CSVs into <span>actionable insights</span></h1>
         <p>Upload your data, get automatic cleaning, AI-powered analysis, and shareable reports — all in seconds.</p>
         <div class="hero-cta">
-            <a href="/" class="btn btn-primary">Get Started Free →</a>
+            <a href="/register" class="btn btn-primary">Get Started Free →</a>
             <a href="#features" class="btn btn-outline">See Features</a>
         </div>
     </section>

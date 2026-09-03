@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Union
@@ -24,6 +25,28 @@ import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _validate_storage_key(key: str) -> None:
+    """Validate that a storage key is safe.
+
+    Rejects keys with path traversal attempts, absolute paths,
+    null bytes, or other dangerous patterns.
+
+    Raises:
+        ValueError: If the key is unsafe.
+    """
+    if not key or not isinstance(key, str):
+        raise ValueError("Storage key must be a non-empty string.")
+    if "\x00" in key:
+        raise ValueError("Storage key contains null bytes.")
+    if key.startswith("/") or key.startswith("\\"):
+        raise ValueError("Storage key must be relative.")
+    if ".." in key.split("/") or ".." in key.split("\\"):
+        raise ValueError("Storage key contains path traversal.")
+    # Only allow safe characters
+    if not re.match(r"^[a-zA-Z0-9_\-./]+$", key):
+        raise ValueError("Storage key contains invalid characters.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -63,14 +86,28 @@ class LocalStorage(StorageBackend):
 
     Keys are relative sub-paths, e.g. ``uploads/myfile.csv``.
     The root directory is determined by :pydata:`config.ROOT_STORAGE`.
+
+    All paths are validated to prevent traversal outside the root.
     """
 
     def __init__(self) -> None:
-        self._root: Path = config.ROOT_STORAGE
+        self._root: Path = config.ROOT_STORAGE.resolve()
         logger.info("LocalStorage initialised (root=%s)", self._root)
 
     def _resolve(self, key: str) -> Path:
-        full = self._root / key
+        """Resolve a storage key to a safe absolute path.
+
+        Validates that the resolved path is inside the storage root
+        to prevent path traversal attacks.
+
+        Raises:
+            ValueError: If the key would escape the storage root.
+        """
+        _validate_storage_key(key)
+        full = (self._root / key).resolve()
+        # Ensure the resolved path is inside the root
+        if not str(full).startswith(str(self._root)):
+            raise ValueError("Storage key resolves outside storage root.")
         full.parent.mkdir(parents=True, exist_ok=True)
         return full
 
@@ -87,7 +124,11 @@ class LocalStorage(StorageBackend):
         return path.read_bytes()
 
     def exists(self, key: str) -> bool:
-        return self._resolve(key).exists()
+        try:
+            path = self._resolve(key)
+            return path.exists()
+        except ValueError:
+            return False
 
     def delete(self, key: str) -> None:
         path = self._resolve(key)
@@ -139,6 +180,7 @@ class S3Storage(StorageBackend):
         logger.info("S3Storage initialised (bucket=%s)", self._bucket)
 
     def save(self, key: str, data: bytes) -> str:
+        _validate_storage_key(key)
         self._client.put_object(
             Bucket=self._bucket,
             Key=key,
@@ -149,6 +191,7 @@ class S3Storage(StorageBackend):
         return key
 
     def load(self, key: str) -> bytes:
+        _validate_storage_key(key)
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=key)
             return response["Body"].read()
@@ -156,6 +199,7 @@ class S3Storage(StorageBackend):
             raise FileNotFoundError(f"Key not found in S3: {key}")
 
     def exists(self, key: str) -> bool:
+        _validate_storage_key(key)
         try:
             self._client.head_object(Bucket=self._bucket, Key=key)
             return True
@@ -163,11 +207,13 @@ class S3Storage(StorageBackend):
             return False
 
     def delete(self, key: str) -> None:
+        _validate_storage_key(key)
         self._client.delete_object(Bucket=self._bucket, Key=key)
         logger.info("S3Storage: deleted %s", key)
 
     def get_download_path(self, key: str) -> str:
         """Return a presigned URL valid for 1 hour."""
+        _validate_storage_key(key)
         url = self._client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": key},

@@ -8,6 +8,7 @@ from functools import wraps
 from typing import Any, Callable
 
 import jwt
+from jwt import PyJWKClient
 from flask import g, jsonify, request
 from sentry_sdk import set_user
 
@@ -16,6 +17,10 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Cache the JWK client to avoid fetching keys on every request
+_jwk_client: PyJWKClient | None = None
+if config.SUPABASE_JWKS_URL:
+    _jwk_client = PyJWKClient(config.SUPABASE_JWKS_URL)
 
 def require_auth(fn: Callable) -> Callable:
     """Decorator that enforces a valid Supabase JWT on the request.
@@ -34,17 +39,29 @@ def require_auth(fn: Callable) -> Callable:
 
         token = auth_header[7:]  # strip "Bearer "
 
-        if not config.SUPABASE_JWT_SECRET:
-            logger.error("SUPABASE_JWT_SECRET is not configured.")
+        if not config.SUPABASE_JWKS_URL and not config.SUPABASE_JWT_SECRET:
+            logger.error("Neither SUPABASE_JWKS_URL nor SUPABASE_JWT_SECRET is configured.")
             return jsonify({"error": "Auth service not configured."}), 503
 
         try:
-            payload = jwt.decode(
-                token,
-                config.SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
+            if _jwk_client:
+                # Use asymmetric RS256 with JWKS
+                signing_key = _jwk_client.get_signing_key_from_jwt(token)
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience="authenticated",
+                )
+            else:
+                # Fallback to symmetric HS256 with JWT secret
+                payload = jwt.decode(
+                    token,
+                    config.SUPABASE_JWT_SECRET,
+                    algorithms=["HS256"],
+                    audience="authenticated",
+                )
+
             g.user_id = payload.get("sub")
             g.user_email = payload.get("email", "")
             g.user_role = payload.get("role", "authenticated")

@@ -1,8 +1,9 @@
 """
-LLM client – Claude API integration for AI-powered data summaries.
+LLM client – Gemini API integration for AI-powered data summaries.
 
-Uses the Anthropic SDK with claude-sonnet-4-5. Falls back to template-based
+Uses the Google GenAI SDK with gemini-2.5-flash. Falls back to template-based
 summaries when the API key is missing or the user exceeds their quota.
+Includes quota checking and usage recording.
 """
 
 from __future__ import annotations
@@ -15,22 +16,21 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-MODEL = "claude-sonnet-4-5-20250514"
-MAX_TOKENS = 1024
+MODEL = "gemini-2.5-flash"
 
 
 def _get_client():
-    """Lazy-import and return Anthropic client."""
+    """Lazy-import and return Gemini client."""
     try:
-        import anthropic
+        from google import genai
     except ImportError:
         raise ImportError(
-            "anthropic SDK is required for AI summaries. "
-            "Install: pip install anthropic"
+            "google-genai SDK is required for AI summaries. "
+            "Install: pip install google-genai"
         )
-    if not config.ANTHROPIC_API_KEY:
-        raise ValueError("ANTHROPIC_API_KEY is not configured.")
-    return anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    if not config.GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not configured.")
+    return genai.Client(api_key=config.GEMINI_API_KEY)
 
 
 def generate_ai_summary(
@@ -38,22 +38,38 @@ def generate_ai_summary(
     corr_data: dict,
     freq_data: list[dict],
     summary_info: dict,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Generate an AI-powered data summary using Claude.
+    """Generate an AI-powered data summary using Gemini.
 
     Args:
         stats_data: Descriptive statistics.
         corr_data: Correlation analysis results.
         freq_data: Frequency table data.
         summary_info: Dataset summary (rows, cols, types).
+        user_id: Optional user ID for quota checking and usage recording.
 
     Returns:
         Dict with ``insights`` (list[str]), ``ai_generated`` (bool),
         ``tokens_used`` (int).
 
     Raises:
+        ValueError: If quota exceeded.
         Exception: On API failure.
     """
+    # ── Quota check ───────────────────────────────────────────────
+    if user_id:
+        from utils.quotas import check_ai_quota
+        from db.users import get_user_plan
+
+        plan = get_user_plan(user_id)
+        quota = check_ai_quota(user_id, plan)
+        if not quota["allowed"]:
+            raise ValueError(
+                f"AI request quota exceeded. "
+                f"Used {quota['used']}/{quota['limit']} this month."
+            )
+
     # Build a concise data context for the LLM
     context = {
         "dataset": summary_info,
@@ -85,15 +101,23 @@ Example output:
 ["Revenue shows strong positive correlation with quantity (r=0.85), suggesting volume-driven pricing.", "The median salary ($52,000) is 15% below the mean ($61,000), indicating right-skewed distribution with high earners pulling the average up."]"""
 
     client = _get_client()
-    response = client.messages.create(
+    from google.genai import types
+    
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=MAX_TOKENS,
-        messages=[{"role": "user", "content": prompt}],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            max_output_tokens=config.MAX_AI_OUTPUT_TOKENS,
+        )
     )
 
     # Extract text and parse JSON
-    raw_text = response.content[0].text.strip()
-    tokens_used = (response.usage.input_tokens or 0) + (response.usage.output_tokens or 0)
+    raw_text = response.text.strip()
+    
+    tokens_used = 0
+    if hasattr(response, "usage_metadata") and response.usage_metadata:
+        tokens_used = (getattr(response.usage_metadata, "prompt_token_count", 0) or 0) + \
+                      (getattr(response.usage_metadata, "candidates_token_count", 0) or 0)
 
     # Parse the JSON array from the response
     try:
@@ -109,6 +133,14 @@ Example output:
         # Fallback: split by newlines
         insights = [line.strip("- •").strip() for line in raw_text.split("\n") if line.strip()]
 
+    # ── Record usage ──────────────────────────────────────────────
+    if user_id:
+        try:
+            from db.llm_usage import record_usage
+            record_usage(user_id, tokens_used, purpose="summary")
+        except Exception as exc:
+            logger.warning("Failed to record LLM usage: %s", exc)
+
     logger.info("AI summary generated: %d insights, %d tokens", len(insights), tokens_used)
 
     return {
@@ -120,4 +152,4 @@ Example output:
 
 def is_available() -> bool:
     """Check if the AI summary service is configured."""
-    return bool(config.ANTHROPIC_API_KEY)
+    return bool(config.GEMINI_API_KEY)
